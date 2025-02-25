@@ -1,0 +1,27 @@
+database:
+  url: sqlite:///test.db
+  pool_size: 5
+  max_overflow: 10
+
+redis:
+  url: redis://localhost:6379
+  db: 1  # Use a different DB for testing
+
+rabbitmq:
+  url: amqp://guest:guest@localhost:5672/
+  exchange: gridbot_test
+
+binance:
+  testnet: true
+  timeout: 10000
+
+telegram:
+  bot_token: "test_token"
+  chat_id: "test_chat_id"
+
+encryption_key: "test_key_32_bytes_long_for_fernet=="
+
+trading:
+  default_leverage: 2
+  max_active_bots_per_client: 2
+  min_grid_spacing: 0.01 
