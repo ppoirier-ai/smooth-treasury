@@ -27,10 +27,10 @@ def test_configure_bot(runner, test_client, test_session):
         '--upper', '25000',
         '--grids', '10'
     ])
+    test_session.commit()  # Ensure changes are committed
     assert result.exit_code == 0
     assert "Bot configured" in result.output
 
-    test_session.commit()  # Ensure changes are committed
     bot = test_session.query(Bot).filter_by(client_id=test_client).first()
     assert bot is not None
     assert bot.pair == 'BTC/SOL'

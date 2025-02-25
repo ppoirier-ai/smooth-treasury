@@ -1,18 +1,13 @@
 import os
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session, scoped_session
+from sqlalchemy.orm import sessionmaker, Session
 from common.database.models import Base
 from common.utils.config import get_config
 from cryptography.fernet import Fernet
 
-@pytest.fixture(scope="session")
-def engine():
-    """Create test database engine."""
-    return create_engine('sqlite:///:memory:', echo=False)
-
 @pytest.fixture(scope="function", autouse=True)
-def setup_test_env(engine):
+def setup_test_env():
     """Set up test environment."""
     # Generate a valid Fernet key for testing
     test_key = Fernet.generate_key().decode()
@@ -22,16 +17,19 @@ def setup_test_env(engine):
     os.environ['ENVIRONMENT'] = 'test'
     os.environ['ENCRYPTION_KEY'] = test_key
     
-    # Create all tables
+    # Create test database engine
+    engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
     
-    # Create session
+    # Create session factory
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
     
     # Override the database connection in the application
     import common.database.connection
-    common.database.connection.get_session = lambda: session
+    common.database.connection._engine = engine  # Store engine reference
+    common.database.connection._SessionLocal = SessionLocal  # Store session factory
+    common.database.connection.get_session = lambda: session  # Override get_session
     
     yield session
     
