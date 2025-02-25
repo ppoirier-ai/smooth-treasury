@@ -46,14 +46,22 @@ def test_session() -> Session:
     """Create a new database session for a test."""
     from common.database.connection import get_session
     session = get_session()
-    yield session
-    session.rollback()
-    session.close()
+    
+    try:
+        yield session
+    finally:
+        # Rollback any changes and expire all objects
+        session.rollback()
+        session.expire_all()
+        session.close()
 
 @pytest.fixture(autouse=True)
 def cleanup_tables(test_session):
     """Clean up tables after each test."""
     yield
+    # Clean up all tables
     for table in reversed(Base.metadata.sorted_tables):
         test_session.execute(table.delete())
-    test_session.commit() 
+    test_session.commit()
+    # Expire all objects to ensure fresh state
+    test_session.expire_all() 
