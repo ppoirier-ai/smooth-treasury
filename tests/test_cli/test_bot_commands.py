@@ -36,18 +36,19 @@ def test_configure_bot(runner, test_client, test_session):
     assert bot.pair == 'BTC/SOL'
     assert bot.status == 'configured'
 
-def test_start_bot(runner, test_client):
+def test_start_bot(runner, test_client, test_session):
     # First configure a bot
-    runner.invoke(configure_bot, [
-        '--client-id', '1',
+    configure_result = runner.invoke(configure_bot, [
+        '--client-id', str(test_client.client_id),
         '--pair', 'BTC/SOL',
         '--lower', '20000',
         '--upper', '25000',
         '--grids', '10'
     ])
+    assert configure_result.exit_code == 0
     
     result = runner.invoke(start_bot, [
-        '--client-id', '1',
+        '--client-id', str(test_client.client_id),
         '--pair', 'BTC/SOL',
         '--capital', '0.1'
     ])

@@ -14,7 +14,7 @@ def test_data(test_session):
     # Create test client with unique ID
     client = Client(client_id=2, api_key="test", api_secret="test")
     test_session.add(client)
-    test_session.flush()  # Get the ID without committing
+    test_session.flush()
     
     # Create test bot
     bot = Bot(
@@ -30,19 +30,21 @@ def test_data(test_session):
     test_session.flush()
     
     # Create test trades
-    trade1 = Trade(
-        bot_id=bot.bot_id,
-        timestamp=datetime.now() - timedelta(hours=12),
-        amount_btc=0.01,
-        profit_btc=0.001
-    )
-    trade2 = Trade(
-        bot_id=bot.bot_id,
-        timestamp=datetime.now() - timedelta(days=2),
-        amount_btc=0.01,
-        profit_btc=0.002
-    )
-    test_session.add_all([trade1, trade2])
+    trades = [
+        Trade(
+            bot_id=bot.bot_id,
+            timestamp=datetime.now() - timedelta(hours=12),
+            amount_btc=0.01,
+            profit_btc=0.001
+        ),
+        Trade(
+            bot_id=bot.bot_id,
+            timestamp=datetime.now() - timedelta(days=2),
+            amount_btc=0.01,
+            profit_btc=0.002
+        )
+    ]
+    test_session.add_all(trades)
     test_session.commit()
     return client.client_id
 

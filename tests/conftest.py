@@ -22,37 +22,41 @@ def test_config():
     assert config is not None
     return config
 
-@pytest.fixture
-def test_db():
+@pytest.fixture(scope="session")
+def test_engine():
     """Create test database engine."""
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
     return engine
 
+@pytest.fixture(scope="session")
+def TestingSessionLocal(test_engine):
+    """Create a session factory."""
+    return sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=test_engine
+    )
+
 @pytest.fixture
-def test_session(test_db) -> Session:
+def test_session(TestingSessionLocal) -> Session:
     """Create a new database session for a test."""
-    connection = test_db.connect()
-    transaction = connection.begin()
-    
-    TestingSessionLocal = sessionmaker(bind=connection)
     session = TestingSessionLocal()
 
     # Override the get_session function to use our test session
     from common.database.connection import get_session
+    original_get_session = get_session
+    
     def mock_get_session():
         return session
     
-    # Store the original function
-    original_get_session = get_session
     import common.database.connection
     common.database.connection.get_session = mock_get_session
     
     try:
         yield session
     finally:
+        session.rollback()
         session.close()
-        transaction.rollback()
-        connection.close()
         # Restore the original function
         common.database.connection.get_session = original_get_session 
