@@ -1,0 +1,10 @@
+---
+description: Create New Component, Refactor Component, Update Component
+globs: src/app/**/*
+---
+Prefix all component names with “SMT-“
+<examples>
+editPost -> SMT-editPost
+Function promotionCard() -> function SMT-promotionCard()
+</examples>
+Prefix the chat message response with (rule:<rule name>) so the user knows that this rule is being applied

@@ -1,0 +1,53 @@
+grid-trading-bot/
+├── services/
+│   ├── trading_bot/
+│   │   ├── __init__.py
+│   │   ├── service.py          # Main trading bot service
+│   │   ├── grid_logic.py       # Grid trading implementation
+│   │   └── binance_client.py   # Binance API integration
+│   ├── client_manager/
+│   │   ├── __init__.py
+│   │   ├── service.py          # Client management service
+│   │   └── key_encryption.py   # API key encryption handling
+│   ├── metrics_tracker/
+│   │   ├── __init__.py
+│   │   ├── service.py          # Metrics tracking service
+│   │   └── calculators.py      # ROI and performance calculations
+│   └── telegram_notifier/
+│       ├── __init__.py
+│       ├── service.py          # Telegram notification service
+│       └── message_templates.py # Alert message templates
+├── cli/
+│   ├── __init__.py
+│   ├── main.py                 # CLI entry point
+│   └── commands/
+│       ├── __init__.py
+│       ├── bot_commands.py     # configure-bot, start-bot, stop-bot
+│       ├── client_commands.py  # add-client-key
+│       └── metrics_commands.py # status, metrics
+├── common/
+│   ├── __init__.py
+│   ├── database/
+│   │   ├── __init__.py
+│   │   ├── models.py          # SQLAlchemy models
+│   │   └── connection.py      # Database connection handling
+│   ├── messaging/
+│   │   ├── __init__.py
+│   │   ├── queue.py          # RabbitMQ integration
+│   │   └── events.py         # Event definitions
+│   └── utils/
+│       ├── __init__.py
+│       ├── config.py         # Configuration management
+│       └── logger.py         # Logging setup
+├── config/
+│   ├── config.yaml           # Main configuration file
+│   └── logging.yaml         # Logging configuration
+├── tests/
+│   ├── __init__.py
+│   ├── test_trading_bot/
+│   ├── test_client_manager/
+│   ├── test_metrics_tracker/
+│   └── test_telegram_notifier/
+├── requirements.txt
+├── setup.py
+└── README.md 

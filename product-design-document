@@ -1,0 +1,41 @@
+# Grid Bot Product Requirements Document
+
+## 1. Elevator Pitch
+This grid bot is a microservices-based, command-line trading tool designed to help crypto traders accumulate Bitcoin (BTC) by trading BTC and Solana (SOL) on Binance. Using a configurable grid strategy with 2X leverage, it leverages Binance’s Coin-M futures to ensure all profits are reinvested as BTC collateral, maximizing BTC holdings over time. Tailored for small trading firms, it connects to clients’ Binance APIs to trade on their behalf with specified capital allocations, tracks performance with metrics like BTC accumulation and ROI, and ensures reliability with Telegram alerts—all without a web UI.
+
+## 2. Who is this app for
+- **Crypto Trading Firms**: Small firms (starting with 4 clients) managing trades for clients to grow BTC holdings.
+- **Technical Traders**: Users who configure trading ranges daily based on technical analysis, comfortable with CLI tools.
+- **Developers**: Those integrating trading bots into systems via microservices APIs, focusing on Binance Coin-M futures.
+
+## 3. Functional Requirements
+- **Trading Logic**: Execute a grid trading strategy on Binance Coin-M futures for BTC/SOL pairs with 2X leverage. Grid range is configurable (lower bound, upper bound, number of grids) via CLI, adjustable daily based on technical analysis. Each bot launch specifies BTC capital allocation.
+- **Exchange Support**: Built for Binance Coin-M futures; BTC acts as collateral, and profits are natively reinvested in BTC.
+- **Microservices Architecture**: Separate services for:
+  - Trade execution (grid bot logic).
+  - Client API management (secure key storage and trade execution).
+  - Metrics tracking and Telegram alerts.
+- **Client API Integration**: Connect to clients’ Binance API keys; clients submit keys via a secure interface, stored encrypted in a database.
+- **Tracking**: Assign bots to specific clients (1-2 bots per client, 4 clients initially), log activity (e.g., active bots, trades, capital allocated).
+- **Metrics**: Track BTC accumulated, % ROI (annualized and 24-hour), and net USD value with same ROI metrics, accessible via CLI.
+- **Error Handling**: Validate API key errors, trade rejections, or liquidation risks; send Telegram alerts for failures or high-risk scenarios.
+- **Command-Line Interface**: Manage bot operations without a web UI.
+
+## 4. User Stories
+- **As a trading firm**, I want to configure a grid bot with custom lower/upper ranges and grid count, so I can optimize trades for BTC/SOL on Binance based on my technical analysis.
+- **As a trader**, I want to specify BTC capital when launching a bot, so I control the amount traded and profits are auto-reinvested as BTC collateral via Coin-M futures.
+- **As a firm**, I want clients to securely submit their Binance API keys, stored encrypted, so I can trade on their behalf safely.
+- **As a developer**, I want microservices APIs to handle trading, metrics, and alerts independently, so I can scale to 4 clients with 1-2 bots each.
+- **As a trader**, I want CLI access to metrics like BTC accumulated and 24-hour ROI, so I can monitor performance daily.
+- **As a firm**, I want Telegram alerts for errors or risks, so I can respond to issues instantly.
+
+## 5. User Interface
+- **CLI Only**: No graphical UI; all interactions via terminal commands.
+  - `configure-bot --client-id <id> --pair BTC/SOL --lower <price> --upper <price> --grids <number> --leverage 2`: Set up or adjust grid bot with custom range and grid count.
+  - `start-bot --client-id <id> --pair BTC/SOL --capital <btc-amount>`: Launch a bot with allocated BTC (e.g., `--capital 0.1`).
+  - `stop-bot --client-id <id>`: Halt a bot.
+  - `status --client-id <id>`: Show active bots and health (e.g., errors, risks).
+  - `metrics --client-id <id>`: Display BTC accumulated, % ROI (yearly/24-hour), and USD value.
+  - `add-client-key --client-id <id> --key <encrypted-key>`: Store a client’s API key securely.
+- **Telegram Integration**: Alerts for errors (e.g., “Client 1: API key invalid”) or risks (e.g., “Client 2: Liquidation risk high”).
+- **Logs**: Output detailed logs to files for debugging and auditing.

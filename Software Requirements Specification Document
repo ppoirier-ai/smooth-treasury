@@ -1,0 +1,80 @@
+# Software Requirements Specification Document
+
+## System Design
+- Distributed microservices system on a single server (scalable later).
+- Core services: Trading Bot, Client Manager, Metrics Tracker, Telegram Notifier.
+- Asynchronous event-driven communication for resilience.
+- CLI as the primary interface, Telegram for real-time alerts.
+
+## Architecture Pattern
+- **Microservices**: Independent services for trading, client management, metrics, and notifications.
+- **Event-Driven**: Services use message queues for communication (e.g., trade events trigger metrics).
+- **Single Responsibility**: Each service focuses on one task (e.g., Trading Bot for trade execution).
+
+## State Management
+- **Stateless Services**: Trading Bot and Notifier query the database/cache per operation.
+- **Centralized State**: Client Manager stores client API keys and bot configs (including capital) in a database.
+- **In-Memory Cache**: Metrics Tracker uses Redis for fast access to recent performance data.
+
+## Data Flow
+- **Trade Execution**: CLI → Trading Bot → Binance API → Database (logs).
+- **Client Key Submission**: CLI → Client Manager → Database (encrypted).
+- **Metrics**: Trading Bot → Metrics Tracker (via queue) → Redis → CLI.
+- **Alerts**: Trading Bot/Metrics Tracker → Telegram Notifier → Telegram API.
+
+## Technical Stack
+- **Language**: Python (ideal for trading logic, rapid prototyping).
+- **Frameworks**: FastAPI (async microservices), Click (CLI tooling).
+- **Database**: PostgreSQL (relational, for keys and logs).
+- **Cache**: Redis (metrics and bot status).
+- **Message Queue**: RabbitMQ (inter-service events).
+- **External APIs**: Binance Coin-M Futures API, Telegram Bot API.
+- **Encryption**: Fernet (symmetric key encryption for API keys).
+
+## Authentication Process
+- **Client API Keys**: Submitted via CLI (`add-client-key`), encrypted with Fernet, stored in PostgreSQL.
+- **Service Access**: No user auth (single owner); microservices use internal JWT tokens.
+- **Binance API**: Trading Bot uses client keys per request, validated by Binance.
+
+## Route Design
+- No traditional routes (CLI-only).
+- **CLI Commands**:
+  - `configure-bot --client-id <id> --pair BTC/SOL --lower <price> --upper <price> --grids <number> --leverage 2`
+  - `start-bot --client-id <id> --pair BTC/SOL --capital <btc-amount>` (e.g., `--capital 0.1` for 0.1 BTC)
+  - `stop-bot --client-id <id>`
+  - `status --client-id <id>`
+  - `metrics --client-id <id>`
+  - `add-client-key --client-id <id> --key <encrypted-key>`
+
+## API Design
+- **Internal APIs** (RESTful, FastAPI-based):
+  - `POST /trade` (Trading Bot): Executes trade, returns `{ "status": "success" }`.
+  - `GET /metrics/<client-id>` (Metrics Tracker): Returns `{ "btc": 0.05, "roi_24h": "2.1%" }`.
+  - `POST /notify` (Telegram Notifier): Sends alert, returns `{ "sent": true }`.
+- **External APIs**:
+  - Binance Coin-M Futures: Trade execution, balance queries.
+  - Telegram: Alert delivery.
+- **Format**: JSON, key=value CLI responses.
+
+## Database Design ERD
+- **Clients Table**:
+  - `client_id` (PK, int)
+  - `api_key` (varchar, encrypted)
+- **Bots Table**:
+  - `bot_id` (PK, int)
+  - `client_id` (FK, int)
+  - `pair` (varchar, e.g., "BTC/SOL")
+  - `status` (varchar, e.g., "active")
+  - `lower_price` (float)
+  - `upper_price` (float)
+  - `grids` (int)
+  - `capital_btc` (float, e.g., 0.1 BTC allocated)
+- **Trades Table**:
+  - `trade_id` (PK, int)
+  - `bot_id` (FK, int)
+  - `timestamp` (datetime)
+  - `amount_btc` (float)
+  - `profit_btc` (float)
+- **Relationships**: 
+  - Clients 1:N Bots
+  - Bots 1:N Trades

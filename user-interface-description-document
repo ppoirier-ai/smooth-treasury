@@ -1,0 +1,40 @@
+# User Interface Description Document
+
+## Layout Structure
+A minimalist, command-line-only interface with no graphical elements, designed for an expert trader/programmer (the product owner) and future AI agent compatibility. Commands are executed via terminal, delivering concise, single-line outputs in a key=value format for easy parsing. Telegram serves as a secondary channel for real-time alerts.
+
+## Core Components
+- **Commands**: Short, flag-based inputs for managing bots:
+  - `configure-bot --client-id <id> --pair BTC/SOL --lower <price> --upper <price> --grids <number> --leverage 2`: Configures grid parameters.
+  - `start-bot --client-id <id> --pair BTC/SOL --capital <btc-amount>`: Launches a bot with allocated BTC (e.g., `--capital 0.1` for 0.1 BTC).
+  - `stop-bot --client-id <id>`: Stops a bot.
+  - `status --client-id <id>`: Checks bot health.
+  - `metrics --client-id <id>`: Retrieves performance data.
+  - `add-client-key --client-id <id> --key <encrypted-key>`: Stores client API keys.
+- **Outputs**: Single-line, parseable responses (e.g., `client=1 btc=0.05 roi_24h=2.1% roi_year=15% usd=3000`).
+- **Alerts**: Telegram messages for errors/risks (e.g., `Client 1: API key invalid`).
+- **Logs**: Detailed logs saved to files for auditing.
+
+## Interaction Patterns
+- **Command Execution**: User inputs a command with flags; system responds instantly with a single-line output. No prompts—assumes expert familiarity.
+  - Example: `start-bot --client-id 1 --pair BTC/SOL --capital 0.1` → `client=1 pair=BTC/SOL status=active leverage=2x capital=0.1`.
+- **Monitoring**: Status and metrics queried on-demand via CLI; Telegram pushes urgent updates asynchronously.
+- **Client Key Submission**: Clients submit API keys via a secure command (encrypted in a database), but only the owner configures/launches bots with capital.
+- **Future AI Use**: Key=value output format supports programmatic parsing by AI agents for automated bot management.
+
+## Visual Design Elements & Color Scheme
+- **CLI**: Monochrome text in the user’s terminal (e.g., white on black), leveraging native terminal styling. No custom colors or formatting in outputs to maintain simplicity and compatibility.
+- **Telegram**: Standard Telegram styling for alerts (blue text, white background), with concise, bolded key info (e.g., **Client 1**: Trade rejected).
+
+## Mobile, Web App, Desktop Considerations
+- **CLI**: Runs on any terminal (desktop preferred for the owner’s workflow); mobile use possible via SSH apps (e.g., Termius), though not optimized. No web app for MVP; future web UI planned.
+- **Telegram**: Alerts accessible on mobile/desktop via the Telegram app, ensuring real-time updates across devices.
+
+## Typography
+- **CLI**: Uses the user’s terminal font (e.g., monospace like Fira Code or Consolas), fixed-width for alignment and readability. No styling beyond key=value separators.
+- **Telegram**: Default Telegram font (e.g., Roboto), with bolding for emphasis on critical details.
+
+## Accessibility
+- **CLI**: Relies on terminal accessibility features (e.g., screen readers like Windows Narrator or macOS VoiceOver), parsing key=value outputs. No graphical elements to accommodate.
+- **Telegram**: Inherits Telegram’s accessibility (e.g., text-to-speech, high-contrast mode), sufficient for alerts.
+- **Note**: Designed for an expert user; accessibility is minimal since CLI assumes technical proficiency and no visual impairments for the primary user (owner).
