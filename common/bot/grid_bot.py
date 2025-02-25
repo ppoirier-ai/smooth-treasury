@@ -88,4 +88,4 @@ class GridBot:
                 total_profit += (order['fill_price'] - order['price']) * order['fill_amount']
             else:
                 total_profit += (order['price'] - order['fill_price']) * order['fill_amount']
-        return total_profit 
+        return total_profit * order['fill_price'] 

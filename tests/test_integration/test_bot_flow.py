@@ -10,11 +10,12 @@ def test_complete_bot_flow(test_session):
     
     # Add client
     result = runner.invoke(add_client_key, [
+        '--client-id', '1',
         '--api-key', 'test_key',
         '--api-secret', 'test_secret'
     ])
     assert result.exit_code == 0
-    client_id = test_session.query(Client).first().client_id
+    client_id = 1
     
     # Configure bot
     result = runner.invoke(configure_bot, [

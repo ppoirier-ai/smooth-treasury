@@ -26,34 +26,29 @@ def encrypt_key(key: str) -> str:
 
 @click.command()
 @click.option('--client-id', type=int, required=True, help='Client ID')
-@click.option('--key', type=str, required=True, help='Binance API key')
-@click.option('--secret', type=str, required=True, help='Binance API secret')
-def add_client_key(client_id: int, key: str, secret: str):
-    """Add or update a client's Binance API keys."""
+@click.option('--api-key', type=str, required=True, help='Exchange API key')
+@click.option('--api-secret', type=str, required=True, help='Exchange API secret')
+def add_client_key(client_id: int, api_key: str, api_secret: str):
+    """Add a new client with API keys."""
     session = get_session()
     try:
-        # Encrypt keys before storing
-        encrypted_key = encrypt_key(key)
-        encrypted_secret = encrypt_key(secret)
+        # Check if client already exists
+        existing = session.query(Client).filter_by(client_id=client_id).first()
+        if existing:
+            raise click.ClickException(f"Client {client_id} already exists")
 
-        # Create or update client
-        client = session.query(Client).filter(Client.client_id == client_id).first()
-        if client:
-            client.api_key = encrypted_key
-            client.api_secret = encrypted_secret
-        else:
-            client = Client(
-                client_id=client_id,
-                api_key=encrypted_key,
-                api_secret=encrypted_secret
-            )
-            session.add(client)
-
+        # Create new client
+        client = Client(
+            client_id=client_id,
+            api_key=api_key,
+            api_secret=api_secret
+        )
+        session.add(client)
         session.commit()
-        click.echo(f"Client API keys stored: client={client_id}")
+        click.echo(f"Added client {client_id}")
 
     except Exception as e:
-        logger.error(f"Failed to store client API keys: {str(e)}")
+        logger.error(f"Failed to add client: {str(e)}")
         raise click.ClickException(str(e))
     finally:
         session.close() 
