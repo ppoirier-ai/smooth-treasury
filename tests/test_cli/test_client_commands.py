@@ -18,6 +18,7 @@ def test_add_client_key(runner, test_session):
     assert result.exit_code == 0
     assert "Client API keys stored" in result.output
 
+    test_session.commit()  # Ensure changes are committed
     client = test_session.query(Client).filter_by(client_id=client_id).first()
     assert client is not None
     assert client.api_key != 'test_api_key'  # Should be encrypted

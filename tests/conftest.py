@@ -1,7 +1,7 @@
 import os
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, scoped_session
 from common.database.models import Base
 from common.utils.config import get_config
 from cryptography.fernet import Fernet
@@ -30,33 +30,31 @@ def test_engine():
     return engine
 
 @pytest.fixture(scope="session")
-def TestingSessionLocal(test_engine):
+def SessionLocal(test_engine):
     """Create a session factory."""
-    return sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        bind=test_engine
+    return scoped_session(
+        sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=test_engine
+        )
     )
 
 @pytest.fixture
-def test_session(TestingSessionLocal) -> Session:
+def test_session(SessionLocal, monkeypatch) -> Session:
     """Create a new database session for a test."""
-    session = TestingSessionLocal()
-
-    # Override the get_session function to use our test session
-    from common.database.connection import get_session
-    original_get_session = get_session
+    session = SessionLocal()
     
+    # Mock the get_session function
     def mock_get_session():
         return session
     
+    # Patch the get_session function
     import common.database.connection
-    common.database.connection.get_session = mock_get_session
+    monkeypatch.setattr(common.database.connection, "get_session", mock_get_session)
     
-    try:
-        yield session
-    finally:
-        session.rollback()
-        session.close()
-        # Restore the original function
-        common.database.connection.get_session = original_get_session 
+    yield session
+    
+    # Clean up
+    session.rollback()
+    SessionLocal.remove() 

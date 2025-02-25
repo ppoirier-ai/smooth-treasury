@@ -10,6 +10,7 @@ def runner():
 
 @pytest.fixture
 def test_client(test_session):
+    """Create a test client."""
     client = Client(
         client_id=1,
         api_key="test_key",

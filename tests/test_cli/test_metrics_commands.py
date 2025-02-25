@@ -11,10 +11,12 @@ def runner():
 
 @pytest.fixture
 def test_data(test_session):
+    """Create test data."""
     # Create test client with unique ID
     client = Client(client_id=2, api_key="test", api_secret="test")
     test_session.add(client)
-    test_session.flush()
+    test_session.commit()
+    test_session.refresh(client)
     
     # Create test bot
     bot = Bot(
@@ -27,7 +29,8 @@ def test_data(test_session):
         capital_btc=0.1
     )
     test_session.add(bot)
-    test_session.flush()
+    test_session.commit()
+    test_session.refresh(bot)
     
     # Create test trades
     trades = [
