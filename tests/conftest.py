@@ -17,44 +17,43 @@ def test_config():
     os.environ['ENVIRONMENT'] = 'test'
     os.environ['ENCRYPTION_KEY'] = test_key
     
-    # Verify config can be loaded
-    config = get_config()
-    assert config is not None
-    return config
-
-@pytest.fixture(scope="session")
-def test_engine():
-    """Create test database engine."""
+    # Create test database engine
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
-    return engine
-
-@pytest.fixture(scope="session")
-def SessionLocal(test_engine):
-    """Create a session factory."""
-    return scoped_session(
+    
+    # Create session factory
+    session_factory = scoped_session(
         sessionmaker(
             autocommit=False,
             autoflush=False,
-            bind=test_engine
+            bind=engine
         )
     )
-
-@pytest.fixture
-def test_session(SessionLocal, monkeypatch) -> Session:
-    """Create a new database session for a test."""
-    session = SessionLocal()
     
-    # Mock the get_session function
-    def mock_get_session():
-        return session
-    
-    # Patch the get_session function
+    # Override the database connection in the application
     import common.database.connection
-    monkeypatch.setattr(common.database.connection, "get_session", mock_get_session)
+    common.database.connection._engine = engine
+    common.database.connection._SessionLocal = session_factory
     
-    yield session
+    yield get_config()
     
     # Clean up
+    Base.metadata.drop_all(engine)
+    session_factory.remove()
+
+@pytest.fixture
+def test_session() -> Session:
+    """Create a new database session for a test."""
+    from common.database.connection import get_session
+    session = get_session()
+    yield session
     session.rollback()
-    SessionLocal.remove() 
+    session.close()
+
+@pytest.fixture(autouse=True)
+def cleanup_tables(test_session):
+    """Clean up tables after each test."""
+    yield
+    for table in reversed(Base.metadata.sorted_tables):
+        test_session.execute(table.delete())
+    test_session.commit() 

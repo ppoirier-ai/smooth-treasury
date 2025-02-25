@@ -56,8 +56,6 @@ def test_start_bot(runner, test_client, test_session):
     assert result.exit_code == 0
     assert "Bot started" in result.output
 
-    session = get_session()
-    bot = session.query(Bot).filter_by(client_id=1).first()
+    bot = test_session.query(Bot).filter_by(client_id=test_client.client_id).first()
     assert bot.status == 'active'
-    assert bot.capital_btc == 0.1
-    session.close() 
+    assert bot.capital_btc == 0.1 
