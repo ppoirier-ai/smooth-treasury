@@ -1,8 +1,20 @@
 from typing import Optional
-import ccxt
+from common.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+try:
+    import ccxt
+    CCXT_AVAILABLE = True
+except ImportError:
+    logger.warning("ccxt package not found. Exchange functionality will be limited.")
+    CCXT_AVAILABLE = False
 
 class ExchangeClient:
     def __init__(self, api_key: str, api_secret: str):
+        if not CCXT_AVAILABLE:
+            raise ImportError("ccxt package is required for exchange functionality")
+        
         self.exchange = ccxt.binance({
             'apiKey': api_key,
             'secret': api_secret,
@@ -30,4 +42,13 @@ class ExchangeClient:
             )
         except Exception as e:
             logger.error(f"Failed to create order: {str(e)}")
-            return None 
+            return None
+
+    def cancel_all_orders(self, symbol: str) -> bool:
+        """Cancel all open orders for a symbol."""
+        try:
+            self.exchange.cancel_all_orders(symbol)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cancel orders: {str(e)}")
+            return False 

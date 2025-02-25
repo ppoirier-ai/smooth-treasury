@@ -1,10 +1,18 @@
 import pytest
 from unittest.mock import Mock, patch
+import sys
+
+# Mock ccxt if it's not available
+if 'ccxt' not in sys.modules:
+    mock_ccxt = Mock()
+    sys.modules['ccxt'] = mock_ccxt
+
 from common.exchange.client import ExchangeClient
 
 @pytest.fixture
 def mock_ccxt():
     with patch('common.exchange.client.ccxt') as mock:
+        mock.binance.return_value = Mock()
         yield mock
 
 @pytest.fixture
