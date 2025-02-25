@@ -1,5 +1,5 @@
 database:
-  url: sqlite:///test.db
+  url: sqlite:///./test.db
   pool_size: 5
   max_overflow: 10
 

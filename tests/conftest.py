@@ -13,8 +13,14 @@ def test_config():
 @pytest.fixture(autouse=True)
 def setup_test_database():
     """Create test database tables before tests and drop them after."""
-    config = get_config()
-    engine = create_engine(config['database']['url'])
+    # Use in-memory SQLite for testing
+    engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
-    yield
+    
+    # Update the database URL in the config to use our test engine
+    config = get_config()
+    config['database']['url'] = str(engine.url)
+    
+    yield engine
+    
     Base.metadata.drop_all(engine) 
