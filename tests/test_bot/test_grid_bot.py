@@ -132,4 +132,7 @@ def test_calculate_profit(mock_client):
     ]
     
     profit = bot.calculate_profit()
-    assert profit == 110.0  # (20000-19900)*0.1 + (21100-21000)*0.1 
+    # Buy profit: (20000 - 19900) * 0.1 = 10
+    # Sell profit: (21100 - 21000) * 0.1 = 10
+    # Total profit = 20
+    assert profit == 20.0 

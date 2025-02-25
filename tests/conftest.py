@@ -5,6 +5,37 @@ from sqlalchemy.orm import sessionmaker, Session
 from common.database.models import Base
 from common.utils.config import get_config
 from cryptography.fernet import Fernet
+import yaml
+
+@pytest.fixture(scope='session', autouse=True)
+def setup_test_config(tmp_path_factory):
+    """Create test config with valid encryption key."""
+    # Generate a valid Fernet key
+    key = Fernet.generate_key().decode()
+    
+    config = {
+        'database': {
+            'url': 'sqlite:///:memory:'
+        },
+        'encryption_key': key,
+        'log_level': 'INFO'
+    }
+    
+    # Create config directory if it doesn't exist
+    config_dir = tmp_path_factory.mktemp('config')
+    config_path = config_dir / 'test_config.yaml'
+    
+    with open(config_path, 'w') as f:
+        yaml.dump(config, f)
+    
+    # Set environment variable to point to test config
+    os.environ['CONFIG_PATH'] = str(config_path)
+    
+    yield config_path
+    
+    # Cleanup
+    if 'CONFIG_PATH' in os.environ:
+        del os.environ['CONFIG_PATH']
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_test_env():
