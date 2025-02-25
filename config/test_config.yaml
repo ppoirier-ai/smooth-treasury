@@ -1,5 +1,5 @@
 database:
-  url: sqlite:///./test.db
+  url: sqlite:///:memory:
   pool_size: 5
   max_overflow: 10
 
@@ -19,7 +19,8 @@ telegram:
   bot_token: "test_token"
   chat_id: "test_chat_id"
 
-encryption_key: "test_key_32_bytes_long_for_fernet=="
+# The actual key will be set via environment variable in conftest.py
+encryption_key: ""
 
 trading:
   default_leverage: 2

@@ -9,19 +9,15 @@ def runner():
     return CliRunner()
 
 @pytest.fixture
-def test_client():
-    session = get_session()
+def test_client(test_session):
     client = Client(
         client_id=1,
         api_key="test_key",
         api_secret="test_secret"
     )
-    session.add(client)
-    session.commit()
+    test_session.add(client)
+    test_session.commit()
     yield client
-    session.delete(client)
-    session.commit()
-    session.close()
 
 def test_configure_bot(runner, test_client):
     result = runner.invoke(configure_bot, [

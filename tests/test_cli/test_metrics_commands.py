@@ -10,12 +10,10 @@ def runner():
     return CliRunner()
 
 @pytest.fixture
-def test_data():
-    session = get_session()
-    
+def test_data(test_session):
     # Create test client
     client = Client(client_id=1, api_key="test", api_secret="test")
-    session.add(client)
+    test_session.add(client)
     
     # Create test bot
     bot = Bot(
@@ -27,7 +25,7 @@ def test_data():
         grids=10,
         capital_btc=0.1
     )
-    session.add(bot)
+    test_session.add(bot)
     
     # Create test trades
     trade1 = Trade(
@@ -42,17 +40,17 @@ def test_data():
         amount_btc=0.01,
         profit_btc=0.002
     )
-    session.add_all([trade1, trade2])
+    test_session.add_all([trade1, trade2])
     
-    session.commit()
+    test_session.commit()
     yield
     
     # Cleanup
-    session.query(Trade).delete()
-    session.query(Bot).delete()
-    session.query(Client).delete()
-    session.commit()
-    session.close()
+    test_session.query(Trade).delete()
+    test_session.query(Bot).delete()
+    test_session.query(Client).delete()
+    test_session.commit()
+    test_session.close()
 
 def test_status(runner, test_data):
     result = runner.invoke(status, ['--client-id', '1'])
