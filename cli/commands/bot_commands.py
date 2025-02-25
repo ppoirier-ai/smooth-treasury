@@ -8,44 +8,32 @@ logger = setup_logger(__name__)
 
 @click.command()
 @click.option('--client-id', type=int, required=True, help='Client ID')
-@click.option('--pair', type=str, required=True, default='BTC/SOL', help='Trading pair')
+@click.option('--pair', type=str, required=True, help='Trading pair (e.g., BTC/SOL)')
 @click.option('--lower', type=float, required=True, help='Lower price bound')
 @click.option('--upper', type=float, required=True, help='Upper price bound')
 @click.option('--grids', type=int, required=True, help='Number of grid lines')
-@click.option('--leverage', type=int, default=2, help='Leverage (default: 2x)')
-def configure_bot(client_id: int, pair: str, lower: float, upper: float, grids: int, leverage: int):
-    """Configure a grid trading bot."""
+def configure_bot(client_id: int, pair: str, lower: float, upper: float, grids: int):
+    """Configure a new grid trading bot."""
     session = get_session()
     try:
         # Verify client exists
-        client = session.query(Client).filter(Client.client_id == client_id).first()
+        client = session.query(Client).filter_by(client_id=client_id).first()
         if not client:
             raise click.ClickException(f"Client {client_id} not found")
 
-        # Create or update bot configuration
-        bot = session.query(Bot).filter(
-            Bot.client_id == client_id,
-            Bot.pair == pair
-        ).first()
-
-        if bot:
-            bot.lower_price = lower
-            bot.upper_price = upper
-            bot.grids = grids
-            bot.status = 'configured'
-        else:
-            bot = Bot(
-                client_id=client_id,
-                pair=pair,
-                lower_price=lower,
-                upper_price=upper,
-                grids=grids,
-                status='configured'
-            )
-            session.add(bot)
-
+        # Create bot configuration
+        bot = Bot(
+            client_id=client_id,
+            pair=pair,
+            status='configured',
+            lower_price=lower,
+            upper_price=upper,
+            grids=grids,
+            capital_btc=0.0  # Initialize with 0
+        )
+        session.add(bot)
         session.commit()
-        click.echo(f"Bot configured: client={client_id} pair={pair} status=configured")
+        click.echo(f"Bot configured: client={client_id}, pair={pair}")
 
     except Exception as e:
         logger.error(f"Failed to configure bot: {str(e)}")

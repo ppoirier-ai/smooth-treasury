@@ -36,6 +36,7 @@ def test_configure_bot(runner, test_client, test_session):
     assert bot is not None
     assert bot.pair == 'BTC/SOL'
     assert bot.status == 'configured'
+    assert bot.capital_btc == 0.0  # Check initial capital
 
 def test_start_bot(runner, test_client, test_session):
     # First configure a bot

@@ -21,7 +21,7 @@ class Bot(Base):
     lower_price = Column(Float, nullable=False)
     upper_price = Column(Float, nullable=False)
     grids = Column(Integer, nullable=False)
-    capital_btc = Column(Float, nullable=False)
+    capital_btc = Column(Float, nullable=True)
     
     client = relationship("Client", back_populates="bots")
     trades = relationship("Trade", back_populates="bot")
