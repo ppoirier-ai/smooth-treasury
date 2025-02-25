@@ -4,12 +4,15 @@ from common.exchange.client import ExchangeClient
 from common.bot.grid_bot import GridBot
 from common.utils.logger import setup_logger
 from datetime import datetime
+from common.bot.price_monitor import PriceMonitor
 
 logger = setup_logger(__name__)
 
 class BotService:
     def __init__(self):
         self.active_bots: Dict[int, GridBot] = {}
+        self.price_monitor = PriceMonitor()
+        self.price_monitor.start()
     
     def start_bot(self, bot: Bot, client: Client) -> bool:
         """Start a grid trading bot."""
@@ -28,6 +31,9 @@ class BotService:
                 capital=bot.capital_btc
             )
             grid_bot.start()
+            
+            # Add to price monitoring
+            self.price_monitor.add_symbol(bot.pair)
             
             # Store active bot
             self.active_bots[bot.bot_id] = grid_bot
