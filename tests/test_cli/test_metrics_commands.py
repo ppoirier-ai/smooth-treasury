@@ -16,7 +16,6 @@ def test_data(test_session):
     client = Client(client_id=2, api_key="test", api_secret="test")
     test_session.add(client)
     test_session.commit()
-    test_session.refresh(client)
     
     # Create test bot
     bot = Bot(
@@ -30,7 +29,6 @@ def test_data(test_session):
     )
     test_session.add(bot)
     test_session.commit()
-    test_session.refresh(bot)
     
     # Create test trades
     trades = [

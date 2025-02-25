@@ -30,11 +30,12 @@ def test_configure_bot(runner, test_client, test_session):
     assert result.exit_code == 0
     assert "Bot configured" in result.output
 
+    test_session.commit()  # Ensure changes are committed
     bot = test_session.query(Bot).filter_by(client_id=test_client).first()
     assert bot is not None
     assert bot.pair == 'BTC/SOL'
     assert bot.status == 'configured'
-    assert bot.capital_btc == 0.0  # Check initial capital
+    assert bot.capital_btc == 0.0
 
 def test_start_bot(runner, test_client, test_session):
     # First configure a bot
