@@ -4,6 +4,7 @@ from common.database.models import Bot, Trade
 from common.utils.logger import setup_logger
 from sqlalchemy import func
 from datetime import datetime, timedelta
+import time
 
 logger = setup_logger(__name__)
 
@@ -83,5 +84,34 @@ def metrics(client_id: int):
     except Exception as e:
         logger.error(f"Failed to get metrics: {str(e)}")
         raise click.ClickException(str(e))
+    finally:
+        session.close()
+
+@click.command()
+def monitor():
+    """Monitor all active bots in real-time."""
+    session = get_session()
+    try:
+        while True:
+            active_bots = session.query(Bot).filter_by(status='active').all()
+            click.clear()
+            click.echo("=== Active Bots ===")
+            for bot in active_bots:
+                # Get 24h metrics
+                profit_24h = session.query(func.sum(Trade.profit_btc)).join(Bot)\
+                    .filter(Trade.bot_id == bot.bot_id)\
+                    .filter(Trade.timestamp >= datetime.now() - timedelta(hours=24))\
+                    .scalar() or 0
+                
+                click.echo(f"\nBot {bot.bot_id} (Client {bot.client_id})")
+                click.echo(f"Pair: {bot.pair}")
+                click.echo(f"Capital: {bot.capital_btc:.8f} BTC")
+                click.echo(f"24h Profit: {profit_24h:.8f} BTC")
+                click.echo(f"ROI: {(profit_24h/bot.capital_btc*100):.2f}%")
+            
+            time.sleep(10)  # Update every 10 seconds
+            
+    except KeyboardInterrupt:
+        click.echo("\nMonitoring stopped")
     finally:
         session.close() 
