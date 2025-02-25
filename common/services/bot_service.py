@@ -92,4 +92,17 @@ class BotService:
             
         except Exception as e:
             logger.error(f"Failed to handle order fill: {str(e)}")
-            return False 
+            return False
+    
+    def cleanup(self):
+        """Clean up all resources."""
+        try:
+            # Stop price monitor
+            self.price_monitor.stop()
+            
+            # Stop all active bots
+            for bot_id in list(self.active_bots.keys()):
+                self.stop_bot(bot_id)
+            
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}") 

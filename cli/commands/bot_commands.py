@@ -103,10 +103,13 @@ def stop_bot(client_id: int, pair: str):
         if bot.status != 'active':
             raise click.ClickException(f"Bot is not active")
 
-        bot.status = 'stopped'
-        session.commit()
-
-        click.echo(f"Bot stopped: client={client_id} pair={pair}")
+        # Stop the bot using service
+        if bot_service.stop_bot(bot.bot_id):
+            bot.status = 'stopped'
+            session.commit()
+            click.echo(f"Bot stopped: client={client_id} pair={pair}")
+        else:
+            raise click.ClickException("Failed to stop bot")
 
     except Exception as e:
         logger.error(f"Failed to stop bot: {str(e)}")
