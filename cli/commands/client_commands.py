@@ -37,11 +37,15 @@ def add_client_key(client_id: int, api_key: str, api_secret: str):
         if existing:
             raise click.ClickException(f"Client {client_id} already exists")
 
+        # Encrypt keys before storing
+        encrypted_key = encrypt_key(api_key)
+        encrypted_secret = encrypt_key(api_secret)
+
         # Create new client
         client = Client(
             client_id=client_id,
-            api_key=api_key,
-            api_secret=api_secret
+            api_key=encrypted_key,
+            api_secret=encrypted_secret
         )
         session.add(client)
         session.commit()
