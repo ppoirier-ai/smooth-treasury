@@ -9,10 +9,16 @@ def get_config() -> Dict[str, Any]:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found at {config_path}")
     
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    return config
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            
+        if not isinstance(config, dict):
+            raise ValueError("Invalid configuration format")
+            
+        return config
+    except yaml.YAMLError as e:
+        raise ValueError(f"Error parsing configuration file: {str(e)}")
 
 def get_env_config() -> Dict[str, Any]:
     """Get configuration from environment variables."""

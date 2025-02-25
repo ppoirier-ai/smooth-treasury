@@ -1,13 +1,14 @@
 import logging
 import sys
 from typing import Optional
+import os
 
 def setup_logger(name: str, level: Optional[str] = None) -> logging.Logger:
     """Set up and return a logger instance."""
     logger = logging.getLogger(name)
     
     if not level:
-        level = logging.INFO
+        level = logging.INFO if os.getenv('ENVIRONMENT') != 'test' else logging.DEBUG
     
     # Avoid adding handlers if they already exist
     if not logger.handlers:
