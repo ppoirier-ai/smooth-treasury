@@ -3,8 +3,12 @@ from typing import Optional
 from common.database.connection import get_session
 from common.database.models import Bot, Client
 from common.utils.logger import setup_logger
+from common.services.bot_service import BotService
 
 logger = setup_logger(__name__)
+
+# Create global bot service instance
+bot_service = BotService()
 
 @click.command()
 @click.option('--client-id', type=int, required=True, help='Client ID')
@@ -49,6 +53,7 @@ def start_bot(client_id: int, pair: str, capital: float):
     """Start a configured grid trading bot."""
     session = get_session()
     try:
+        # Get bot configuration
         bot = session.query(Bot).filter(
             Bot.client_id == client_id,
             Bot.pair == pair
@@ -60,11 +65,19 @@ def start_bot(client_id: int, pair: str, capital: float):
         if bot.status == 'active':
             raise click.ClickException(f"Bot is already active")
 
-        bot.status = 'active'
-        bot.capital_btc = capital
-        session.commit()
+        # Get client for API keys
+        client = session.query(Client).filter_by(client_id=client_id).first()
+        if not client:
+            raise click.ClickException(f"Client {client_id} not found")
 
-        click.echo(f"Bot started: client={client_id} pair={pair} capital={capital}BTC")
+        # Start the bot
+        bot.capital_btc = capital
+        if bot_service.start_bot(bot, client):
+            bot.status = 'active'
+            session.commit()
+            click.echo(f"Bot started: client={client_id} pair={pair} capital={capital}BTC")
+        else:
+            raise click.ClickException("Failed to start bot")
 
     except Exception as e:
         logger.error(f"Failed to start bot: {str(e)}")
