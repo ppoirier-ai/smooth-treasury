@@ -1,7 +1,7 @@
 import os
 import pytest
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from common.database.models import Base
 from common.utils.config import get_config
 from cryptography.fernet import Fernet
@@ -22,26 +22,37 @@ def test_config():
     assert config is not None
     return config
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def test_db():
     """Create test database engine."""
     engine = create_engine('sqlite:///:memory:', echo=False)
     Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(bind=engine)
-    
-    # Override the get_session function to use our test database
-    from common.database.connection import _SessionLocal
-    global _SessionLocal
-    _SessionLocal = TestingSessionLocal
-    
     return engine
 
 @pytest.fixture
-def test_session(test_db):
+def test_session(test_db) -> Session:
     """Create a new database session for a test."""
-    Session = sessionmaker(bind=test_db)
-    session = Session()
+    connection = test_db.connect()
+    transaction = connection.begin()
+    
+    TestingSessionLocal = sessionmaker(bind=connection)
+    session = TestingSessionLocal()
+
+    # Override the get_session function to use our test session
+    from common.database.connection import get_session
+    def mock_get_session():
+        return session
+    
+    # Store the original function
+    original_get_session = get_session
+    import common.database.connection
+    common.database.connection.get_session = mock_get_session
+    
     try:
         yield session
     finally:
-        session.close() 
+        session.close()
+        transaction.rollback()
+        connection.close()
+        # Restore the original function
+        common.database.connection.get_session = original_get_session 

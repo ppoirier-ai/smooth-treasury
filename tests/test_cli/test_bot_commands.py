@@ -17,11 +17,12 @@ def test_client(test_session):
     )
     test_session.add(client)
     test_session.commit()
-    yield client
+    test_session.refresh(client)
+    return client
 
-def test_configure_bot(runner, test_client):
+def test_configure_bot(runner, test_client, test_session):
     result = runner.invoke(configure_bot, [
-        '--client-id', '1',
+        '--client-id', str(test_client.client_id),
         '--pair', 'BTC/SOL',
         '--lower', '20000',
         '--upper', '25000',
@@ -30,12 +31,10 @@ def test_configure_bot(runner, test_client):
     assert result.exit_code == 0
     assert "Bot configured" in result.output
 
-    session = get_session()
-    bot = session.query(Bot).filter_by(client_id=1).first()
+    bot = test_session.query(Bot).filter_by(client_id=test_client.client_id).first()
     assert bot is not None
     assert bot.pair == 'BTC/SOL'
     assert bot.status == 'configured'
-    session.close()
 
 def test_start_bot(runner, test_client):
     # First configure a bot
