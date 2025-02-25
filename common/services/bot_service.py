@@ -61,4 +61,29 @@ class BotService:
             'pair': bot.pair,
             'active_orders': len(bot.orders),
             'capital': bot.capital
-        } 
+        }
+    
+    def handle_order_fill(self, bot_id: int, order_id: str, fill_price: float, fill_amount: float, session) -> bool:
+        """Handle order fill event and record trade."""
+        try:
+            if bot_id not in self.active_bots:
+                logger.warning(f"Order fill for inactive bot: {bot_id}")
+                return False
+            
+            bot = self.active_bots[bot_id]
+            bot.handle_order_fill(order_id, fill_price, fill_amount)
+            
+            # Record trade in database
+            trade = Trade(
+                bot_id=bot_id,
+                timestamp=datetime.now(),
+                amount_btc=fill_amount,
+                profit_btc=bot.calculate_profit()
+            )
+            session.add(trade)
+            session.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to handle order fill: {str(e)}")
+            return False 
