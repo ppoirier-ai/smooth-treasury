@@ -11,15 +11,30 @@ except ImportError:
     CCXT_AVAILABLE = False
 
 class ExchangeClient:
-    def __init__(self, api_key: str, api_secret: str):
+    def __init__(self, api_key: str, api_secret: str, testnet: bool = False):
+        """Initialize exchange client.
+        
+        Args:
+            api_key: API key
+            api_secret: API secret
+            testnet: If True, use testnet instead of mainnet
+        """
         if not CCXT_AVAILABLE:
             raise ImportError("ccxt package is required for exchange functionality")
         
-        self.exchange = ccxt.binance({
+        options = {
             'apiKey': api_key,
             'secret': api_secret,
-            'enableRateLimit': True
-        })
+        }
+        
+        if testnet:
+            options.update({
+                'urls': {
+                    'api': 'https://testnet.binance.vision/api',
+                }
+            })
+        
+        self.exchange = ccxt.binance(options)
     
     def get_ticker(self, symbol: str) -> Optional[float]:
         """Get current price for symbol."""

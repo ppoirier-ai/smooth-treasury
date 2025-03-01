@@ -18,7 +18,11 @@ class BotService:
         """Start a grid trading bot."""
         try:
             # Create exchange client
-            exchange = ExchangeClient(client.api_key, client.api_secret)
+            exchange = ExchangeClient(
+                client.api_key, 
+                client.api_secret,
+                testnet=client.is_testnet
+            )
             
             # Create and start grid bot
             grid_bot = GridBot(

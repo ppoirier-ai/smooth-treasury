@@ -28,7 +28,8 @@ def encrypt_key(key: str) -> str:
 @click.option('--client-id', type=int, required=True, help='Client ID')
 @click.option('--api-key', type=str, required=True, help='Exchange API key')
 @click.option('--api-secret', type=str, required=True, help='Exchange API secret')
-def add_client_key(client_id: int, api_key: str, api_secret: str):
+@click.option('--testnet', is_flag=True, help='Use Binance testnet')
+def add_client_key(client_id: int, api_key: str, api_secret: str, testnet: bool = False):
     """Add a new client with API keys."""
     session = get_session()
     try:
@@ -45,11 +46,12 @@ def add_client_key(client_id: int, api_key: str, api_secret: str):
         client = Client(
             client_id=client_id,
             api_key=encrypted_key,
-            api_secret=encrypted_secret
+            api_secret=encrypted_secret,
+            is_testnet=testnet
         )
         session.add(client)
         session.commit()
-        click.echo(f"Added client {client_id}")
+        click.echo(f"Added client {client_id} ({'testnet' if testnet else 'mainnet'})")
 
     except Exception as e:
         logger.error(f"Failed to add client: {str(e)}")

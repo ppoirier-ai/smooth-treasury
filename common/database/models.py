@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean
 
 Base = declarative_base()
 
@@ -7,8 +7,9 @@ class Client(Base):
     __tablename__ = "clients"
     
     client_id = Column(Integer, primary_key=True)
-    api_key = Column(String, nullable=False)  # Encrypted
-    api_secret = Column(String, nullable=False)  # Encrypted
+    api_key = Column(String)
+    api_secret = Column(String)
+    is_testnet = Column(Boolean, default=False)
     bots = relationship("Bot", back_populates="client")
 
 class Bot(Base):
