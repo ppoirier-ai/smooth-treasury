@@ -1,33 +1,36 @@
 from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 from common.utils.config import get_config
-import os
+import logging
+from common.database.models import Base
+
+logger = logging.getLogger(__name__)
 
 # Global variables for engine and session factory
 _engine = None
 _SessionLocal = None
 
+def init_db():
+    """Initialize database and create tables."""
+    config = get_config()
+    db_url = config.get('database', {}).get('url')
+    
+    if not db_url:
+        raise ValueError("Database URL not configured")
+    
+    engine = create_engine(db_url)
+    logger.info(f"Creating database tables at {db_url}")
+    Base.metadata.create_all(bind=engine)
+    
+    return engine, sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 def get_engine():
     """Get SQLAlchemy engine."""
-    global _engine
+    global _engine, _SessionLocal
     if _engine is None:
-        config = get_config()
-        db_url = config['database']['url']
-        
-        # Use different pooling settings for SQLite
-        if db_url.startswith('sqlite'):
-            _engine = create_engine(
-                db_url,
-                connect_args={"check_same_thread": False}
-            )
-        else:
-            _engine = create_engine(
-                db_url,
-                poolclass=QueuePool,
-                pool_size=config['database']['pool_size'],
-                max_overflow=config['database']['max_overflow']
-            )
+        _engine, _SessionLocal = init_db()
     return _engine
 
 def get_session_factory():
@@ -39,5 +42,7 @@ def get_session_factory():
 
 def get_session():
     """Get database session."""
-    SessionLocal = get_session_factory()
-    return SessionLocal() 
+    global _engine, _SessionLocal
+    if _SessionLocal is None:
+        _engine, _SessionLocal = init_db()
+    return _SessionLocal() 

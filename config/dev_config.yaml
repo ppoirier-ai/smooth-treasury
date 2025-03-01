@@ -1,0 +1,4 @@
+database:
+  url: "sqlite:///./grid_bot.db"
+encryption_key: "uzF8S1EO0zG_CbUJcZS1wvF1lyjdsUFE5_zwSk5fQH0="
+log_level: "INFO" 
