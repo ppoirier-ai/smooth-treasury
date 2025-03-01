@@ -113,7 +113,7 @@ def main():
     parser.add_argument('api_key', help='Binance API key')
     parser.add_argument('api_secret', help='Binance API secret')
     parser.add_argument('pair', help='Trading pair, e.g. BTC/USDT')
-    parser.add_argument('capital', type=float, help='Capital to use for trading (in BTC)')
+    parser.add_argument('capital', type=float, help='Capital to use for trading (in USDT)')
     parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
     parser.add_argument('--range-percentage', type=float, default=2.0, 
                        help='Price range percentage above and below current price')
@@ -167,40 +167,38 @@ def main():
     
     logger.info(f"Minimum notional value: {min_notional} USDT")
     
-    # Calculate minimum BTC required per order
-    min_btc_per_order = min_notional / current_price
-    min_btc_per_order = float(format_quantity(min_btc_per_order, symbol_info))
+    # Check if our total capital is sufficient
+    if args.capital < min_notional:
+        logger.error(f"Total capital {args.capital} USDT is below the minimum notional {min_notional} USDT")
+        return
     
-    logger.info(f"Minimum BTC per order: {min_btc_per_order} BTC (~{min_btc_per_order * current_price:.2f} USDT)")
+    # Calculate how many grids we can create
+    max_grids = math.floor(args.capital / min_notional)
+    if max_grids < 1:
+        logger.error(f"Not enough capital to create even 1 grid. Need at least {min_notional} USDT.")
+        return
     
-    # Check if our capital is sufficient
-    total_min_capital = min_btc_per_order * args.grids
-    if args.capital < total_min_capital:
-        logger.warning(f"Capital too low. Need at least {total_min_capital} BTC for {args.grids} orders.")
-        logger.warning(f"Adjusting to use minimum size {min_btc_per_order} BTC per order.")
-        # Continue with the minimum size
-        order_size = min_btc_per_order
+    if max_grids < args.grids:
+        logger.warning(f"Can only create {max_grids} grids with {args.capital} USDT (min notional: {min_notional} USDT)")
+        actual_grids = max_grids
     else:
-        # We have enough capital
-        order_size = args.capital / args.grids
-        # Make sure it meets minimum
-        if order_size < min_btc_per_order:
-            order_size = min_btc_per_order
+        actual_grids = args.grids
     
-    # Format order size according to lot size requirements
-    order_size_str = format_quantity(order_size, symbol_info)
+    # Calculate USDT per grid
+    usdt_per_grid = args.capital / actual_grids
+    usdt_per_grid = max(usdt_per_grid, min_notional)  # Ensure we meet minimum
     
-    logger.info(f"Order size per grid: {order_size_str} BTC (value: ~{float(order_size_str) * current_price:.2f} USDT)")
+    logger.info(f"Using {actual_grids} grids with {usdt_per_grid:.2f} USDT per grid")
     
     # Calculate grid levels
-    grid_steps = args.grids + 1
+    grid_steps = actual_grids + 1
     price_step = (float(upper_price_str) - float(lower_price_str)) / grid_steps
     
     # Create orders
     logger.info("Creating orders directly with proper formatting:")
     
     successful_orders = 0
-    for i in range(args.grids):
+    for i in range(actual_grids):
         # Calculate grid price
         grid_price = float(lower_price_str) + price_step * (i + 1)
         grid_price_str = format_price(grid_price, symbol_info)
@@ -208,24 +206,35 @@ def main():
         # Alternate buy/sell orders
         side = "buy" if i % 2 == 0 else "sell"
         
-        # Calculate notional value to verify
+        # Calculate quantity in BTC based on the USDT amount we want to use per grid
+        btc_quantity = usdt_per_grid / float(grid_price_str)
+        order_size_str = format_quantity(btc_quantity, symbol_info)
+        
+        # Verify the notional value meets requirements
         notional_value = float(order_size_str) * float(grid_price_str)
         logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC (notional: {notional_value:.2f} USDT)")
         
         if notional_value < min_notional:
-            logger.warning(f"Order notional ({notional_value:.2f} USDT) below minimum ({min_notional} USDT). Skipping.")
-            continue
+            logger.warning(f"Order notional ({notional_value:.2f} USDT) below minimum ({min_notional} USDT). Trying to increase size.")
+            # Try to increase the size to meet the minimum
+            required_btc = min_notional / float(grid_price_str)
+            required_btc_str = format_quantity(required_btc, symbol_info)
+            notional_value = float(required_btc_str) * float(grid_price_str)
+            
+            if notional_value < min_notional:
+                logger.warning(f"Still below minimum. Skipping order.")
+                continue
+            
+            logger.info(f"Adjusted order: {side} order at {grid_price_str} for {required_btc_str} BTC (notional: {notional_value:.2f} USDT)")
+            order_size_str = required_btc_str
         
         try:
-            # Convert to Binance format (needed for the API)
-            binance_symbol = args.pair.replace('/', '')
-            
             # Debug the exact parameters being sent
-            logger.info(f"API parameters: symbol={binance_symbol}, side={side}, amount={order_size_str}, price={grid_price_str}")
+            logger.info(f"API parameters: symbol={args.pair}, side={side}, amount={order_size_str}, price={grid_price_str}")
             
             # Create order
             result = exchange_client.create_order(
-                symbol=args.pair,  # The client handles the / conversion
+                symbol=args.pair,
                 side=side,
                 amount=float(order_size_str),
                 price=float(grid_price_str)
@@ -239,7 +248,7 @@ def main():
         except Exception as e:
             logger.error(f"Error creating order: {str(e)}")
     
-    logger.info(f"Created {successful_orders} out of {args.grids} orders!")
+    logger.info(f"Created {successful_orders} out of {actual_grids} orders!")
     
     if successful_orders > 0:
         logger.info("Orders created! Press Ctrl+C to cancel all orders and exit.")
