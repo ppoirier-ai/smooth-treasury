@@ -53,6 +53,13 @@ def get_binance_futures_symbol_info(symbol, testnet=True):
     
     return None
 
+def get_filter_value(symbol_info, filter_type, key):
+    """Get value from a specific filter type"""
+    for filter_item in symbol_info['filters']:
+        if filter_item['filterType'] == filter_type:
+            return filter_item.get(key)
+    return None
+
 def format_quantity(quantity, step_size, min_qty):
     """Format quantity according to Binance requirements"""
     # Ensure quantity is >= min_qty
@@ -158,11 +165,24 @@ def main():
         logger.error(f"Failed to get symbol info for {args.pair}")
         return
     
-    # Extract important values
-    min_qty = float(symbol_info['filters'][1]['minQty'])  # LOT_SIZE filter
-    step_size = float(symbol_info['filters'][1]['stepSize'])  # LOT_SIZE filter
-    tick_size = float(symbol_info['filters'][0]['tickSize'])  # PRICE_FILTER
-    min_notional = float(symbol_info['filters'][6]['notional'])  # MIN_NOTIONAL filter
+    # Debug: Print all filters
+    logger.info("All filters:")
+    for i, filter_item in enumerate(symbol_info['filters']):
+        logger.info(f"  Filter #{i}: {filter_item}")
+    
+    # Extract important values using filter types instead of indices
+    min_qty = float(get_filter_value(symbol_info, 'LOT_SIZE', 'minQty') or 0.001)
+    step_size = float(get_filter_value(symbol_info, 'LOT_SIZE', 'stepSize') or 0.001)
+    tick_size = float(get_filter_value(symbol_info, 'PRICE_FILTER', 'tickSize') or 0.1)
+    
+    # Handle MIN_NOTIONAL filter differently since the structure might be different
+    min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'notional')
+    if min_notional_value is None:
+        # Try alternate field name
+        min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'minNotional')
+    
+    # If still not found, use a sensible default
+    min_notional = float(min_notional_value or 100.0)
     
     logger.info(f"Symbol: {symbol_info['symbol']} (Status: {symbol_info['status']})")
     logger.info(f"Min Quantity: {min_qty}, Step Size: {step_size}")
