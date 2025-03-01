@@ -73,10 +73,11 @@ def format_quantity(quantity, symbol_info):
     
     # Round to step size
     precision = 0
-    if '.' in step_size:
-        precision = len(step_size.split('.')[1])
+    if '.' in str(step_size):
+        precision = len(str(step_size).split('.')[1].rstrip('0'))
     
-    rounded_qty = round(quantity / step_size) * step_size
+    # Ensure we're rounding to match step size
+    rounded_qty = math.floor(quantity / step_size) * step_size
     
     # Format to correct precision
     if precision > 0:
@@ -91,15 +92,16 @@ def format_price(price, symbol_info):
     if not price_filter:
         return str(price)
     
-    tick_size = float(price_filter['tickSize'])
+    tick_size_str = price_filter['tickSize']
+    tick_size = float(tick_size_str)
     
     # Round to tick size
-    rounded_price = round(price / tick_size) * tick_size
+    rounded_price = math.floor(price / tick_size) * tick_size
     
     # Format to correct precision
     precision = 0
-    if '.' in tick_size:
-        precision = len(tick_size.split('.')[1])
+    if '.' in tick_size_str:
+        precision = len(tick_size_str.split('.')[1].rstrip('0'))
     
     if precision > 0:
         return f"{rounded_price:.{precision}f}"
@@ -162,7 +164,7 @@ def main():
     
     # Calculate grid levels
     grid_steps = args.grids + 1
-    price_step = (upper_price - lower_price) / grid_steps
+    price_step = (float(upper_price_str) - float(lower_price_str)) / grid_steps
     
     # Calculate order size (use min notional requirement)
     min_notional = 5.0  # Default minimum order value in USDT
@@ -173,9 +175,12 @@ def main():
     # Make sure our capital meets minimum requirements
     if args.capital * current_price < min_notional:
         logger.warning(f"Capital too low. Minimum required is {min_notional / current_price} BTC")
-        
-    # Calculate order size per grid
-    order_size = args.capital / args.grids
+        logger.warning(f"Using minimum order size instead")
+        min_qty = float(symbol_info['filters'][1]['minQty'])  # LOT_SIZE filter
+        order_size = min_qty
+    else:
+        # Calculate order size per grid
+        order_size = args.capital / args.grids
     
     # Format order size according to lot size requirements
     order_size_str = format_quantity(order_size, symbol_info)
@@ -183,9 +188,10 @@ def main():
     logger.info(f"Order size per grid: {order_size_str} BTC")
     
     # Create orders
+    successful_orders = 0
     for i in range(args.grids):
         # Calculate grid price
-        grid_price = lower_price + price_step * (i + 1)
+        grid_price = float(lower_price_str) + price_step * (i + 1)
         grid_price_str = format_price(grid_price, symbol_info)
         
         # Alternate buy/sell orders
@@ -194,11 +200,15 @@ def main():
         logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC")
         
         try:
-            # Create order with symbol in Binance format
-            symbol = args.pair.replace('/', '')
+            # Convert to Binance format (needed for the API)
+            binance_symbol = args.pair.replace('/', '')
             
+            # Debug the exact parameters being sent
+            logger.info(f"API parameters: symbol={binance_symbol}, side={side}, amount={order_size_str}, price={grid_price_str}")
+            
+            # Create order
             result = exchange_client.create_order(
-                symbol=args.pair,
+                symbol=args.pair,  # The client may handle the / conversion
                 side=side,
                 amount=float(order_size_str),
                 price=float(grid_price_str)
@@ -206,31 +216,41 @@ def main():
             
             if result:
                 logger.info(f"Created order: {result}")
+                successful_orders += 1
             else:
                 logger.error(f"Failed to create order")
         except Exception as e:
             logger.error(f"Error creating order: {str(e)}")
     
-    logger.info("All orders created! Press Ctrl+C to cancel all orders and exit.")
+    logger.info(f"Created {successful_orders} out of {args.grids} orders!")
     
-    try:
-        while True:
-            # Get open orders
-            orders = exchange_client.get_open_orders(args.pair)
-            logger.info(f"Open orders: {len(orders) if orders else 0}")
-            
-            # Get positions
-            positions = exchange_client.get_positions(args.pair)
-            if positions:
-                logger.info(f"Current positions: {positions}")
-            else:
-                logger.info("No open positions")
+    if successful_orders > 0:
+        logger.info("Orders created! Press Ctrl+C to cancel all orders and exit.")
+        
+        try:
+            while True:
+                # Get open orders
+                orders = exchange_client.get_open_orders(args.pair)
+                logger.info(f"Open orders: {len(orders) if orders else 0}")
                 
-            time.sleep(10)
-    except KeyboardInterrupt:
-        logger.info("Cancelling all orders...")
-        exchange_client.cancel_all_orders(args.pair)
-        logger.info("Orders cancelled. Exiting.")
+                # Get positions
+                positions = exchange_client.get_positions(args.pair)
+                if positions:
+                    logger.info(f"Current positions: {positions}")
+                else:
+                    logger.info("No open positions")
+                    
+                time.sleep(10)
+        except KeyboardInterrupt:
+            logger.info("Cancelling all orders...")
+            exchange_client.cancel_all_orders(args.pair)
+            logger.info("Orders cancelled. Exiting.")
+    else:
+        logger.error("No orders were created successfully.")
+        # Let's check what the actual implementation of the FuturesExchangeClient.create_order method is
+        logger.info("Checking FuturesExchangeClient.create_order method:")
+        import inspect
+        logger.info(inspect.getsource(exchange_client.create_order))
 
 if __name__ == "__main__":
     main() 
