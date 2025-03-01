@@ -58,26 +58,44 @@ def get_binance_futures_symbol_info(symbol, testnet=True):
     
     return None
 
-def format_quantity(quantity, symbol_info):
-    """Format quantity according to Binance requirements"""
-    # Get lot size filter
+def get_min_qty(symbol_info):
+    """Get minimum quantity for a symbol"""
     lot_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'LOT_SIZE'), None)
-    if not lot_filter:
-        return str(quantity)
-    
-    min_qty = float(lot_filter['minQty'])
-    step_size = float(lot_filter['stepSize'])
+    if lot_filter:
+        return float(lot_filter['minQty'])
+    return 0.001  # Default minimum quantity
+
+def get_step_size(symbol_info):
+    """Get step size for quantity"""
+    lot_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'LOT_SIZE'), None)
+    if lot_filter:
+        return float(lot_filter['stepSize'])
+    return 0.001  # Default step size
+
+def format_quantity(quantity, symbol_info, round_up=False):
+    """Format quantity according to Binance requirements"""
+    # Get lot size filter values
+    min_qty = get_min_qty(symbol_info)
+    step_size = get_step_size(symbol_info)
     
     # Ensure quantity is >= min_qty
     quantity = max(min_qty, quantity)
     
-    # Round to step size
+    # Get precision for formatting
     precision = 0
     if '.' in str(step_size):
         precision = len(str(step_size).split('.')[1].rstrip('0'))
     
-    # Ensure we're rounding to match step size
-    rounded_qty = math.floor(quantity / step_size) * step_size
+    # Calculate number of steps
+    steps = quantity / step_size
+    
+    # Round to step size (up or down based on parameter)
+    if round_up:
+        rounded_steps = math.ceil(steps)
+    else:
+        rounded_steps = math.floor(steps)
+    
+    rounded_qty = rounded_steps * step_size
     
     # Format to correct precision
     if precision > 0:
@@ -108,6 +126,24 @@ def format_price(price, symbol_info):
     else:
         return str(int(rounded_price))
 
+def calculate_min_quantity_for_notional(price, min_notional, symbol_info):
+    """Calculate the minimum quantity needed to meet the minimum notional requirement"""
+    # Get min quantity and step size
+    min_qty = get_min_qty(symbol_info)
+    step_size = get_step_size(symbol_info)
+    
+    # Calculate the raw quantity needed
+    raw_qty_needed = min_notional / price
+    
+    # Round up to the nearest step size
+    steps_needed = math.ceil(raw_qty_needed / step_size)
+    qty_needed = steps_needed * step_size
+    
+    # Ensure it's at least the minimum quantity
+    qty_needed = max(qty_needed, min_qty)
+    
+    return qty_needed
+
 def main():
     parser = argparse.ArgumentParser(description='Run grid bot with direct API keys')
     parser.add_argument('api_key', help='Binance API key')
@@ -126,10 +162,8 @@ def main():
         logger.error(f"Symbol {args.pair} not found on Binance Futures Testnet")
         return
     
-    # Print symbol info
+    # Print symbol info and filters
     logger.info(f"Symbol: {symbol_info['symbol']} (Status: {symbol_info['status']})")
-    
-    # Print filters
     logger.info("Symbol filters:")
     for f in symbol_info['filters']:
         logger.info(f"  {f['filterType']}: {json.dumps(f)}")
@@ -145,29 +179,33 @@ def main():
     
     logger.info(f"Current price: {current_price}")
     
-    # Calculate grid parameters and round correctly
+    # Calculate grid parameters
     range_factor = args.range_percentage / 100
     lower_price = current_price * (1 - range_factor)
     upper_price = current_price * (1 + range_factor)
     
-    # Format according to exchange requirements
+    # Format prices
     lower_price_str = format_price(lower_price, symbol_info)
     upper_price_str = format_price(upper_price, symbol_info)
     
     logger.info(f"Grid range: {lower_price_str} to {upper_price_str}")
     
-    # Get bot ID
-    bot_id = int(datetime.now().timestamp())
-    
-    # Check min notional
-    min_notional = 100.0  # Default minimum order value in USDT from error message
+    # Get minimum notional value
+    min_notional = 100.0  # Default from error message
     min_notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None)
     if min_notional_filter:
         min_notional = float(min_notional_filter['notional'])
     
     logger.info(f"Minimum notional value: {min_notional} USDT")
     
-    # Check if our total capital is sufficient
+    # Calculate the minimum BTC amount needed at current price to meet min notional
+    min_btc_required = calculate_min_quantity_for_notional(current_price, min_notional, symbol_info)
+    min_btc_formatted = format_quantity(min_btc_required, symbol_info)
+    min_notional_actual = float(min_btc_formatted) * current_price
+    
+    logger.info(f"Minimum quantity required: {min_btc_formatted} BTC (notional: {min_notional_actual:.2f} USDT)")
+    
+    # Check if our total capital is sufficient for at least one order
     if args.capital < min_notional:
         logger.error(f"Total capital {args.capital} USDT is below the minimum notional {min_notional} USDT")
         return
@@ -202,31 +240,40 @@ def main():
         # Calculate grid price
         grid_price = float(lower_price_str) + price_step * (i + 1)
         grid_price_str = format_price(grid_price, symbol_info)
+        grid_price_float = float(grid_price_str)
         
         # Alternate buy/sell orders
         side = "buy" if i % 2 == 0 else "sell"
         
-        # Calculate quantity in BTC based on the USDT amount we want to use per grid
-        btc_quantity = usdt_per_grid / float(grid_price_str)
-        order_size_str = format_quantity(btc_quantity, symbol_info)
+        # Calculate the minimum BTC needed at this price point to meet min notional
+        min_btc_at_price = calculate_min_quantity_for_notional(grid_price_float, min_notional, symbol_info)
         
-        # Verify the notional value meets requirements
-        notional_value = float(order_size_str) * float(grid_price_str)
+        # Calculate quantity in BTC based on the USDT amount we want to use per grid
+        btc_quantity = usdt_per_grid / grid_price_float
+        
+        # Use the larger of the two to ensure we meet minimum notional
+        final_btc_quantity = max(btc_quantity, min_btc_at_price)
+        
+        # Format the quantity (round up to ensure we meet min notional)
+        order_size_str = format_quantity(final_btc_quantity, symbol_info, round_up=True)
+        
+        # Calculate the actual notional value
+        notional_value = float(order_size_str) * grid_price_float
+        
         logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC (notional: {notional_value:.2f} USDT)")
         
+        # Double-check we meet the minimum notional
         if notional_value < min_notional:
-            logger.warning(f"Order notional ({notional_value:.2f} USDT) below minimum ({min_notional} USDT). Trying to increase size.")
-            # Try to increase the size to meet the minimum
-            required_btc = min_notional / float(grid_price_str)
-            required_btc_str = format_quantity(required_btc, symbol_info)
-            notional_value = float(required_btc_str) * float(grid_price_str)
+            logger.warning(f"Order notional ({notional_value:.2f} USDT) still below minimum ({min_notional} USDT). This shouldn't happen.")
+            logger.warning(f"Price: {grid_price_float}, Min BTC needed: {min_btc_at_price}, Calculated: {final_btc_quantity}, Formatted: {order_size_str}")
+            # Try one more time by forcing a larger quantity
+            forced_btc = min_notional / grid_price_float * 1.01  # Add 1% buffer
+            order_size_str = format_quantity(forced_btc, symbol_info, round_up=True)
+            notional_value = float(order_size_str) * grid_price_float
             
             if notional_value < min_notional:
-                logger.warning(f"Still below minimum. Skipping order.")
+                logger.error(f"Still can't meet minimum notional. Skipping order.")
                 continue
-            
-            logger.info(f"Adjusted order: {side} order at {grid_price_str} for {required_btc_str} BTC (notional: {notional_value:.2f} USDT)")
-            order_size_str = required_btc_str
         
         try:
             # Debug the exact parameters being sent
@@ -237,7 +284,7 @@ def main():
                 symbol=args.pair,
                 side=side,
                 amount=float(order_size_str),
-                price=float(grid_price_str)
+                price=grid_price_float
             )
             
             if result:
