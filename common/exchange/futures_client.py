@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import requests
 import json
+import random
 
 logger = setup_logger(__name__)
 
@@ -89,16 +90,20 @@ class FuturesExchangeClient:
         # Get server time for timestamp
         timestamp = self._get_timestamp()
         
+        # Add client order ID to help track orders
+        order_id = f"grid-{int(time.time())}-{random.randint(1000, 9999)}"
+        
         # Prepare parameters
         params = {
             'symbol': formatted_symbol,
             'side': side.upper(),
             'type': 'LIMIT',
             'timeInForce': 'GTC',
-            'quantity': amount,
-            'price': price,
-            'timestamp': timestamp,
-            'recvWindow': 5000
+            'quantity': str(amount),  # Convert to string
+            'price': str(price),      # Convert to string
+            'timestamp': str(timestamp),
+            'recvWindow': '5000',
+            'newClientOrderId': order_id
         }
         
         # Sign request
@@ -109,6 +114,9 @@ class FuturesExchangeClient:
         headers = {
             'X-MBX-APIKEY': self.api_key
         }
+        
+        # Debug output
+        logger.debug(f"Placing order: URL={url}, Headers={headers}")
         
         try:
             response = requests.post(url, headers=headers)
