@@ -17,15 +17,24 @@ class FuturesExchangeClient:
         self.api_secret = api_secret
         self.testnet = testnet
         
+        # Debug log - Show partial API key for debugging
+        logger.info(f"Using API key: {api_key[:5]}...{api_key[-5:] if len(api_key) > 10 else ''}")
+        
         # Base URLs
         if testnet:
             self.base_url = "https://testnet.binancefuture.com"
         else:
             self.base_url = "https://fapi.binance.com"
             
-        logger.info(f"Initialized Binance Futures client with testnet={testnet}")
+        # Test connection
+        try:
+            server_time = self._get_timestamp()
+            logger.info(f"Connected to Binance Futures {'testnet' if testnet else 'mainnet'}")
+        except Exception as e:
+            logger.error(f"Failed to connect to Binance Futures: {str(e)}")
+            raise
     
-    def _get_timestamp(self):
+    def _get_timestamp(self) -> int:
         """Get server timestamp to avoid time sync issues."""
         url = f"{self.base_url}/fapi/v1/time"
         response = requests.get(url)
@@ -33,14 +42,21 @@ class FuturesExchangeClient:
             return response.json()['serverTime']
         return int(time.time() * 1000)
     
-    def _sign_request(self, params: Dict):
+    def _sign_request(self, params: Dict) -> tuple:
         """Sign request with API secret."""
+        # Convert all values to strings
+        params = {k: str(v) for k, v in params.items()}
+        
+        # Create query string
         query_string = '&'.join([f"{key}={params[key]}" for key in params])
+        
+        # Create signature
         signature = hmac.new(
             self.api_secret.encode('utf-8'),
             query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
+        
         return query_string, signature
     
     def get_ticker(self, symbol: str) -> Optional[float]:
@@ -70,22 +86,26 @@ class FuturesExchangeClient:
         # Convert symbol format
         formatted_symbol = symbol.replace('/', '')
         
+        # Get server time for timestamp
         timestamp = self._get_timestamp()
         
+        # Prepare parameters
         params = {
             'symbol': formatted_symbol,
             'side': side.upper(),
             'type': 'LIMIT',
-            'timeInForce': 'GTC',  # Good Till Canceled
+            'timeInForce': 'GTC',
             'quantity': amount,
             'price': price,
             'timestamp': timestamp,
             'recvWindow': 5000
         }
         
+        # Sign request
         query_string, signature = self._sign_request(params)
         url = f"{self.base_url}/fapi/v1/order?{query_string}&signature={signature}"
         
+        # Prepare headers
         headers = {
             'X-MBX-APIKEY': self.api_key
         }
@@ -112,8 +132,10 @@ class FuturesExchangeClient:
 
     def get_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
         """Get all open orders for a symbol."""
+        # Get server time for timestamp
         timestamp = self._get_timestamp()
         
+        # Prepare parameters
         params = {
             'timestamp': timestamp,
             'recvWindow': 5000
@@ -124,9 +146,11 @@ class FuturesExchangeClient:
             formatted_symbol = symbol.replace('/', '')
             params['symbol'] = formatted_symbol
         
+        # Sign request
         query_string, signature = self._sign_request(params)
         url = f"{self.base_url}/fapi/v1/openOrders?{query_string}&signature={signature}"
         
+        # Prepare headers
         headers = {
             'X-MBX-APIKEY': self.api_key
         }
@@ -137,6 +161,7 @@ class FuturesExchangeClient:
                 data = response.json()
                 orders = []
                 for order in data:
+                    # Convert BTCUSDT back to BTC/USDT format
                     symbol_with_slash = f"{order['symbol'][:-4]}/{order['symbol'][-4:]}"
                     orders.append({
                         'id': str(order['orderId']),
@@ -160,17 +185,21 @@ class FuturesExchangeClient:
         # Convert symbol format
         formatted_symbol = symbol.replace('/', '')
         
+        # Get server time for timestamp
         timestamp = self._get_timestamp()
         
+        # Prepare parameters
         params = {
             'symbol': formatted_symbol,
             'timestamp': timestamp,
             'recvWindow': 5000
         }
         
+        # Sign request
         query_string, signature = self._sign_request(params)
         url = f"{self.base_url}/fapi/v1/allOpenOrders?{query_string}&signature={signature}"
         
+        # Prepare headers
         headers = {
             'X-MBX-APIKEY': self.api_key
         }
@@ -190,16 +219,20 @@ class FuturesExchangeClient:
     
     def get_account_balance(self, currency: str = None) -> Dict[str, Any]:
         """Get account balance."""
+        # Get server time for timestamp
         timestamp = self._get_timestamp()
         
+        # Prepare parameters
         params = {
             'timestamp': timestamp,
             'recvWindow': 5000
         }
         
+        # Sign request
         query_string, signature = self._sign_request(params)
         url = f"{self.base_url}/fapi/v2/balance?{query_string}&signature={signature}"
         
+        # Prepare headers
         headers = {
             'X-MBX-APIKEY': self.api_key
         }
