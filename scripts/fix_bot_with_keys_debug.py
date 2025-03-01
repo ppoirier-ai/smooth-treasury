@@ -113,7 +113,7 @@ def main():
     parser.add_argument('api_key', help='Binance API key')
     parser.add_argument('api_secret', help='Binance API secret')
     parser.add_argument('pair', help='Trading pair, e.g. BTC/USDT')
-    parser.add_argument('capital', type=float, help='Capital to use for trading')
+    parser.add_argument('capital', type=float, help='Capital to use for trading (in BTC)')
     parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
     parser.add_argument('--range-percentage', type=float, default=2.0, 
                        help='Price range percentage above and below current price')
@@ -159,35 +159,46 @@ def main():
     # Get bot ID
     bot_id = int(datetime.now().timestamp())
     
-    # Create orders manually with proper formatting
-    logger.info("Creating orders directly with proper formatting:")
+    # Check min notional
+    min_notional = 100.0  # Default minimum order value in USDT from error message
+    min_notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None)
+    if min_notional_filter:
+        min_notional = float(min_notional_filter['notional'])
+    
+    logger.info(f"Minimum notional value: {min_notional} USDT")
+    
+    # Calculate minimum BTC required per order
+    min_btc_per_order = min_notional / current_price
+    min_btc_per_order = float(format_quantity(min_btc_per_order, symbol_info))
+    
+    logger.info(f"Minimum BTC per order: {min_btc_per_order} BTC (~{min_btc_per_order * current_price:.2f} USDT)")
+    
+    # Check if our capital is sufficient
+    total_min_capital = min_btc_per_order * args.grids
+    if args.capital < total_min_capital:
+        logger.warning(f"Capital too low. Need at least {total_min_capital} BTC for {args.grids} orders.")
+        logger.warning(f"Adjusting to use minimum size {min_btc_per_order} BTC per order.")
+        # Continue with the minimum size
+        order_size = min_btc_per_order
+    else:
+        # We have enough capital
+        order_size = args.capital / args.grids
+        # Make sure it meets minimum
+        if order_size < min_btc_per_order:
+            order_size = min_btc_per_order
+    
+    # Format order size according to lot size requirements
+    order_size_str = format_quantity(order_size, symbol_info)
+    
+    logger.info(f"Order size per grid: {order_size_str} BTC (value: ~{float(order_size_str) * current_price:.2f} USDT)")
     
     # Calculate grid levels
     grid_steps = args.grids + 1
     price_step = (float(upper_price_str) - float(lower_price_str)) / grid_steps
     
-    # Calculate order size (use min notional requirement)
-    min_notional = 5.0  # Default minimum order value in USDT
-    min_notional_filter = next((f for f in symbol_info['filters'] if f['filterType'] == 'MIN_NOTIONAL'), None)
-    if min_notional_filter:
-        min_notional = float(min_notional_filter['notional'])
-    
-    # Make sure our capital meets minimum requirements
-    if args.capital * current_price < min_notional:
-        logger.warning(f"Capital too low. Minimum required is {min_notional / current_price} BTC")
-        logger.warning(f"Using minimum order size instead")
-        min_qty = float(symbol_info['filters'][1]['minQty'])  # LOT_SIZE filter
-        order_size = min_qty
-    else:
-        # Calculate order size per grid
-        order_size = args.capital / args.grids
-    
-    # Format order size according to lot size requirements
-    order_size_str = format_quantity(order_size, symbol_info)
-    
-    logger.info(f"Order size per grid: {order_size_str} BTC")
-    
     # Create orders
+    logger.info("Creating orders directly with proper formatting:")
+    
     successful_orders = 0
     for i in range(args.grids):
         # Calculate grid price
@@ -197,7 +208,13 @@ def main():
         # Alternate buy/sell orders
         side = "buy" if i % 2 == 0 else "sell"
         
-        logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC")
+        # Calculate notional value to verify
+        notional_value = float(order_size_str) * float(grid_price_str)
+        logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC (notional: {notional_value:.2f} USDT)")
+        
+        if notional_value < min_notional:
+            logger.warning(f"Order notional ({notional_value:.2f} USDT) below minimum ({min_notional} USDT). Skipping.")
+            continue
         
         try:
             # Convert to Binance format (needed for the API)
@@ -208,7 +225,7 @@ def main():
             
             # Create order
             result = exchange_client.create_order(
-                symbol=args.pair,  # The client may handle the / conversion
+                symbol=args.pair,  # The client handles the / conversion
                 side=side,
                 amount=float(order_size_str),
                 price=float(grid_price_str)
@@ -232,6 +249,8 @@ def main():
                 # Get open orders
                 orders = exchange_client.get_open_orders(args.pair)
                 logger.info(f"Open orders: {len(orders) if orders else 0}")
+                for order in orders or []:
+                    logger.info(f"  Order: {order}")
                 
                 # Get positions
                 positions = exchange_client.get_positions(args.pair)
@@ -247,10 +266,6 @@ def main():
             logger.info("Orders cancelled. Exiting.")
     else:
         logger.error("No orders were created successfully.")
-        # Let's check what the actual implementation of the FuturesExchangeClient.create_order method is
-        logger.info("Checking FuturesExchangeClient.create_order method:")
-        import inspect
-        logger.info(inspect.getsource(exchange_client.create_order))
 
 if __name__ == "__main__":
     main() 
