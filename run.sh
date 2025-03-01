@@ -2,14 +2,22 @@
 # Set the configuration path
 export CONFIG_PATH=$(pwd)/config/dev_config.yaml
 
-# Remove old database if exists
-if [ -f "./grid_bot.db" ]; then
-    echo "Removing old database..."
-    rm ./grid_bot.db
+# Only remove database if --reset flag is provided
+if [ "$1" = "--reset" ]; then
+    echo "Resetting database..."
+    if [ -f "./grid_bot.db" ]; then
+        rm ./grid_bot.db
+    fi
+    # Initialize database
+    python -m scripts.init_db
+    shift # Remove the --reset argument
+else
+    # Initialize database only if it doesn't exist
+    if [ ! -f "./grid_bot.db" ]; then
+        echo "Database not found. Initializing..."
+        python -m scripts.init_db
+    fi
 fi
-
-# Initialize database
-python -m scripts.init_db
 
 # Run the command
 python -m cli.main "$@" 
