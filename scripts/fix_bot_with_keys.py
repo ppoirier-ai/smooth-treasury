@@ -8,6 +8,7 @@ import argparse
 import logging
 from datetime import datetime
 import time
+import math
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,6 +21,11 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def round_to_precision(value, precision):
+    """Round value to specific precision (decimal places)"""
+    factor = 10 ** precision
+    return math.floor(value * factor) / factor
+
 def main():
     parser = argparse.ArgumentParser(description='Run grid bot with direct API keys')
     parser.add_argument('api_key', help='Binance API key')
@@ -29,6 +35,10 @@ def main():
     parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
     parser.add_argument('--range-percentage', type=float, default=2.0, 
                        help='Price range percentage above and below current price')
+    parser.add_argument('--price-precision', type=int, default=1, 
+                       help='Price precision (decimal places)')
+    parser.add_argument('--qty-precision', type=int, default=3, 
+                       help='Quantity precision (decimal places)')
     
     args = parser.parse_args()
     
@@ -43,13 +53,14 @@ def main():
         
     logger.info(f"Current {args.pair} price: {current_price}")
     
-    # Calculate grid parameters
+    # Calculate grid parameters and round to correct precision
     range_factor = args.range_percentage / 100
-    lower_price = current_price * (1 - range_factor)
-    upper_price = current_price * (1 + range_factor)
+    lower_price = round_to_precision(current_price * (1 - range_factor), args.price_precision)
+    upper_price = round_to_precision(current_price * (1 + range_factor), args.price_precision)
     
     logger.info(f"Grid range: {lower_price:.2f} to {upper_price:.2f} ({args.range_percentage}% range)")
     logger.info(f"Grid levels: {args.grids}")
+    logger.info(f"Using price precision: {args.price_precision}, quantity precision: {args.qty_precision}")
     
     # Get bot ID (use timestamp as a simple unique identifier)
     bot_id = int(datetime.now().timestamp())
@@ -67,8 +78,8 @@ def main():
     # Use CORRECT ORDER: bot_id, client, pair, lower, upper, grids, capital
     bot = GridBot(
         bot_id,
-        exchange_client,  # This should be BEFORE pair!
-        args.pair,        # This should be AFTER client!
+        exchange_client,
+        args.pair,
         lower_price, 
         upper_price, 
         args.grids,
@@ -80,11 +91,28 @@ def main():
         logger.info(f"Starting bot with ID {bot_id} for {args.pair} with {args.capital} capital")
         bot.start()
         
-        # Keep running until keyboard interrupt
+        # Keep running until keyboard interrupt - but don't call check_orders since it doesn't exist
         logger.info("Bot running. Press Ctrl+C to stop.")
+        
+        # Instead of calling a non-existent method, poll the order status manually
         while True:
-            bot.check_orders()
-            time.sleep(5)
+            # Just sleep and wait for manual interrupt
+            logger.info(f"Bot running... Current profit: {bot.calculate_profit()}")
+            
+            # Check if any orders have been filled
+            # We'll do this manually since check_orders doesn't exist
+            for order_id, order_info in list(bot.active_orders.items()):
+                order_status = exchange_client.get_order(args.pair, order_id)
+                if order_status and order_status.get('status') == 'filled':
+                    logger.info(f"Order {order_id} has been filled!")
+                    bot.handle_order_fill(
+                        order_id, 
+                        float(order_status['price']), 
+                        float(order_status['amount'])
+                    )
+            
+            time.sleep(10)
+            
     except KeyboardInterrupt:
         logger.info("Stopping bot...")
         bot.stop()
