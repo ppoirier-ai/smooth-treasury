@@ -1,5 +1,5 @@
 import click
-from cli.commands.bot_commands import configure_bot, start_bot, stop_bot, bot_service
+from cli.commands.bot_commands import configure_bot, start_bot, stop_bot, bot_service, clear_bots
 from cli.commands.client_commands import add_client_key
 from cli.commands.metrics_commands import status, metrics
 import atexit
@@ -16,6 +16,7 @@ cli.add_command(stop_bot)
 cli.add_command(add_client_key)
 cli.add_command(status)
 cli.add_command(metrics)
+cli.add_command(clear_bots)
 
 def cleanup():
     """Clean up resources on shutdown."""

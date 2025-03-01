@@ -137,4 +137,40 @@ def stop_bot(client_id: int, pair: str):
         logger.error(f"Failed to stop bot: {str(e)}")
         raise click.ClickException(str(e))
     finally:
+        session.close()
+
+@click.command()
+@click.option('--client-id', type=int, required=True, help='Client ID')
+@click.option('--all', is_flag=True, help='Clear all bots, regardless of status')
+def clear_bots(client_id: int, all: bool):
+    """Clear bot configurations for a client."""
+    session = get_session()
+    try:
+        # Get bots for the client
+        query = session.query(Bot).filter(Bot.client_id == client_id)
+        
+        # If not clearing all, only clear inactive bots
+        if not all:
+            query = query.filter(Bot.status != 'active')
+            
+        bots = query.all()
+        
+        if not bots:
+            click.echo(f"No bots found for client {client_id}")
+            return
+            
+        # Delete bots
+        for bot in bots:
+            status = bot.status
+            pair = bot.pair
+            session.delete(bot)
+            click.echo(f"Deleted bot: client={client_id} pair={pair} status={status}")
+            
+        session.commit()
+        click.echo(f"Cleared {len(bots)} bots for client {client_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to clear bots: {str(e)}")
+        raise click.ClickException(str(e))
+    finally:
         session.close() 

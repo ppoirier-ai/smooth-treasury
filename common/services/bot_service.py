@@ -5,6 +5,7 @@ from common.bot.grid_bot import GridBot
 from common.utils.logger import setup_logger
 from datetime import datetime
 from common.bot.price_monitor import PriceMonitor
+import os
 
 logger = setup_logger(__name__)
 
@@ -18,11 +19,17 @@ class BotService:
         """Start a grid trading bot."""
         try:
             # Create exchange client
-            exchange = ExchangeClient(
-                client.api_key, 
-                client.api_secret,
-                testnet=client.is_testnet
-            )
+            if client.is_testnet and os.environ.get('USE_MOCK_EXCHANGE', 'False').lower() == 'true':
+                # Use mock client
+                from common.exchange.mock_client import MockExchangeClient
+                exchange = MockExchangeClient(client.api_key, client.api_secret)
+            elif client.is_testnet and os.environ.get('USE_FUTURES', 'False').lower() == 'true':
+                # Use futures client for testnet
+                from common.exchange.futures_client import FuturesExchangeClient
+                exchange = FuturesExchangeClient(client.api_key, client.api_secret, client.is_testnet)
+            else:
+                # Use regular exchange client (spot)
+                exchange = ExchangeClient(client.api_key, client.api_secret, client.is_testnet)
             
             # Create and start grid bot
             grid_bot = GridBot(

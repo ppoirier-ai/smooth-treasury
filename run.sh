@@ -20,4 +20,6 @@ else
 fi
 
 # Run the command
-python -m cli.main "$@" 
+python -m cli.main "$@"
+
+chmod +x scripts/test_exchange.py 
