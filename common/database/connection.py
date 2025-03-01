@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import QueuePool
 from common.utils.config import get_config
 import logging
+import os
 from common.database.models import Base
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,20 @@ def init_db():
     if not db_url:
         raise ValueError("Database URL not configured")
     
-    engine = create_engine(db_url)
+    # Print the database URL for debugging
+    print(f"Connecting to database: {db_url}")
+    
+    # Configure engine based on database type
+    if db_url.startswith('sqlite'):
+        # SQLite specific configuration
+        engine = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False}
+        )
+    else:
+        # PostgreSQL or other databases
+        engine = create_engine(db_url)
+    
     logger.info(f"Creating database tables at {db_url}")
     Base.metadata.create_all(bind=engine)
     
@@ -32,13 +46,6 @@ def get_engine():
     if _engine is None:
         _engine, _SessionLocal = init_db()
     return _engine
-
-def get_session_factory():
-    """Get session factory."""
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=get_engine())
-    return _SessionLocal
 
 def get_session():
     """Get database session."""
