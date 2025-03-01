@@ -13,7 +13,6 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from common.exchange.futures_client import FuturesExchangeClient
-from common.exchange.mock_client import MockExchangeClient
 from common.bot.grid_bot import GridBot
 
 # Set up logging
@@ -27,7 +26,6 @@ def main():
     parser.add_argument('api_secret', help='Binance API secret')
     parser.add_argument('pair', help='Trading pair, e.g. BTC/USDT')
     parser.add_argument('capital', type=float, help='Capital to use for trading')
-    parser.add_argument('--testnet', action='store_true', help='Use testnet instead of mainnet')
     parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
     parser.add_argument('--range-percentage', type=float, default=2.0, 
                        help='Price range percentage above and below current price')
@@ -35,10 +33,10 @@ def main():
     args = parser.parse_args()
     
     # Create futures client directly with provided keys
-    exchange = FuturesExchangeClient(args.api_key, args.api_secret, testnet=args.testnet)
+    exchange_client = FuturesExchangeClient(args.api_key, args.api_secret, testnet=True)
     
     # Get current price to calculate grid range
-    current_price = exchange.get_ticker(args.pair)
+    current_price = exchange_client.get_ticker(args.pair)
     if not current_price:
         logger.error(f"Failed to get current price for {args.pair}")
         return
@@ -56,15 +54,25 @@ def main():
     # Get bot ID (use timestamp as a simple unique identifier)
     bot_id = int(datetime.now().timestamp())
     
-    # Create grid bot with all required parameters
+    # Print the parameter list to debug
+    logger.info(f"Creating GridBot with parameters:")
+    logger.info(f"  bot_id: {bot_id}")
+    logger.info(f"  client: [exchange client object]")
+    logger.info(f"  pair: {args.pair}")
+    logger.info(f"  lower: {lower_price}")
+    logger.info(f"  upper: {upper_price}")
+    logger.info(f"  grids: {args.grids}")
+    logger.info(f"  capital: {args.capital}")
+    
+    # Use CORRECT ORDER: bot_id, client, pair, lower, upper, grids, capital
     bot = GridBot(
-        bot_id, 
-        args.pair, 
-        exchange, 
+        bot_id,
+        exchange_client,  # This should be BEFORE pair!
+        args.pair,        # This should be AFTER client!
         lower_price, 
         upper_price, 
-        args.grids, 
-        capital=args.capital
+        args.grids,
+        args.capital
     )
     
     try:

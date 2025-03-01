@@ -23,7 +23,26 @@ def test_spot_connection(api_key, api_secret, testnet=True):
     else:
         base_url = "https://api.binance.com"
     
-    # 1. Test public endpoint (no auth)
+    # 1. Get server time first to sync timestamps
+    print("\nGetting server time...")
+    try:
+        response = requests.get(f"{base_url}/api/v3/time")
+        if response.status_code == 200:
+            server_time = response.json()['serverTime']
+            print(f"Server time: {server_time}")
+            
+            # Calculate time difference
+            local_time = int(time.time() * 1000)
+            diff = local_time - server_time
+            print(f"Time difference: {diff}ms")
+        else:
+            print(f"Failed to get server time: {response.text}")
+            server_time = int(time.time() * 1000)
+    except Exception as e:
+        print(f"Error getting server time: {str(e)}")
+        server_time = int(time.time() * 1000)
+    
+    # 2. Test public endpoint (no auth)
     print("\nTesting public endpoint (price)...")
     try:
         response = requests.get(f"{base_url}/api/v3/ticker/price?symbol=BTCUSDT")
@@ -35,13 +54,14 @@ def test_spot_connection(api_key, api_secret, testnet=True):
     except Exception as e:
         print(f"❌ Error: {str(e)}")
     
-    # 2. Test private endpoint (requires auth)
+    # 3. Test private endpoint (requires auth) - using server time
     print("\nTesting private endpoint (account)...")
-    timestamp = int(time.time() * 1000)
+    # Use server time slightly in the past to ensure it's not ahead
+    timestamp = server_time - 500  # Subtract 500ms to be safe
     
     params = {
         'timestamp': timestamp,
-        'recvWindow': 5000
+        'recvWindow': 5000  # Allow 5s time difference
     }
     
     query_string = '&'.join([f"{key}={params[key]}" for key in params])
@@ -72,6 +92,9 @@ def test_spot_connection(api_key, api_secret, testnet=True):
                 print("- Signature is incorrect (API secret might be wrong)")
             elif "Invalid API-key" in response.text:
                 print("- API key is invalid or doesn't have permission")
+            elif "Timestamp" in response.text:
+                print("- Timestamp issue - local time is too different from server time")
+                print("  Try increasing recvWindow or check system clock")
     except Exception as e:
         print(f"❌ Error: {str(e)}")
     
@@ -86,7 +109,26 @@ def test_futures_connection(api_key, api_secret, testnet=True):
     else:
         base_url = "https://fapi.binance.com"
     
-    # 1. Test public endpoint (no auth)
+    # 1. Get server time first to sync timestamps
+    print("\nGetting server time...")
+    try:
+        response = requests.get(f"{base_url}/fapi/v1/time")
+        if response.status_code == 200:
+            server_time = response.json()['serverTime']
+            print(f"Server time: {server_time}")
+            
+            # Calculate time difference
+            local_time = int(time.time() * 1000)
+            diff = local_time - server_time
+            print(f"Time difference: {diff}ms")
+        else:
+            print(f"Failed to get server time: {response.text}")
+            server_time = int(time.time() * 1000)
+    except Exception as e:
+        print(f"Error getting server time: {str(e)}")
+        server_time = int(time.time() * 1000)
+    
+    # 2. Test public endpoint (no auth)
     print("\nTesting public endpoint (price)...")
     try:
         response = requests.get(f"{base_url}/fapi/v1/ticker/price?symbol=BTCUSDT")
@@ -98,9 +140,9 @@ def test_futures_connection(api_key, api_secret, testnet=True):
     except Exception as e:
         print(f"❌ Error: {str(e)}")
     
-    # 2. Test private endpoint (requires auth)
+    # 3. Test private endpoint (requires auth)
     print("\nTesting private endpoint (account)...")
-    timestamp = int(time.time() * 1000)
+    timestamp = server_time - 500
     
     params = {
         'timestamp': timestamp,
@@ -138,7 +180,7 @@ def test_futures_connection(api_key, api_secret, testnet=True):
     except Exception as e:
         print(f"❌ Error: {str(e)}")
     
-    # 3. Test order placement
+    # 4. Test order placement
     print("\nTesting market order placement (not executing)...")
     print("Skipping actual order placement to prevent accidental trades")
     
