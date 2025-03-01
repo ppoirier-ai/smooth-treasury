@@ -47,38 +47,60 @@ def configure_bot(client_id: int, pair: str, lower: float, upper: float, grids: 
 
 @click.command()
 @click.option('--client-id', type=int, required=True, help='Client ID')
-@click.option('--pair', type=str, required=True, default='BTC/SOL', help='Trading pair')
-@click.option('--capital', type=float, required=True, help='Capital in BTC')
-def start_bot(client_id: int, pair: str, capital: float):
-    """Start a configured grid trading bot."""
+@click.option('--pair', type=str, required=True, help='Trading pair')
+@click.option('--capital', type=float, required=True, help='Trading capital in BTC')
+@click.option('--daemon', is_flag=True, help='Run in daemon mode')
+def start_bot(client_id: int, pair: str, capital: float, daemon: bool = False):
+    """Start a grid trading bot."""
     session = get_session()
     try:
-        # Get bot configuration
+        client = session.query(Client).filter_by(client_id=client_id).first()
+        if not client:
+            raise click.ClickException(f"Client {client_id} not found")
+            
         bot = session.query(Bot).filter(
             Bot.client_id == client_id,
             Bot.pair == pair
         ).first()
-
+        
         if not bot:
-            raise click.ClickException(f"No configured bot found for client {client_id} and pair {pair}")
-
-        if bot.status == 'active':
-            raise click.ClickException(f"Bot is already active")
-
-        # Get client for API keys
-        client = session.query(Client).filter_by(client_id=client_id).first()
-        if not client:
-            raise click.ClickException(f"Client {client_id} not found")
-
-        # Start the bot
+            raise click.ClickException(f"No bot configuration found for client {client_id} and pair {pair}")
+            
+        # Update bot status and capital
+        bot.status = 'active'
         bot.capital_btc = capital
+        session.commit()
+        
+        # Start the bot
         if bot_service.start_bot(bot, client):
-            bot.status = 'active'
-            session.commit()
-            click.echo(f"Bot started: client={client_id} pair={pair} capital={capital}BTC")
+            # If daemon mode, detach and keep running
+            if daemon:
+                import threading
+                import time
+                
+                def keep_alive():
+                    """Keep the process alive."""
+                    try:
+                        click.echo(f"Bot running in daemon mode. Press Ctrl+C to stop.")
+                        while True:
+                            time.sleep(1)
+                    except KeyboardInterrupt:
+                        click.echo("Stopping bot...")
+                        bot_service.stop_bot(bot.bot_id)
+                        
+                # Start background thread to keep process alive
+                thread = threading.Thread(target=keep_alive)
+                thread.daemon = False
+                thread.start()
+                thread.join()  # Wait for keyboard interrupt
+            else:
+                click.echo(f"Bot started: client={client_id} pair={pair} capital={capital}BTC")
+                click.echo("Note: Bot will stop when this command exits. Use --daemon to keep running.")
         else:
+            bot.status = 'error'
+            session.commit()
             raise click.ClickException("Failed to start bot")
-
+    
     except Exception as e:
         logger.error(f"Failed to start bot: {str(e)}")
         raise click.ClickException(str(e))
