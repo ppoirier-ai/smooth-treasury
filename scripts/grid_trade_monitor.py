@@ -23,6 +23,24 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def get_binance_server_time(testnet=True):
+    """Get server time from Binance"""
+    if testnet:
+        url = "https://testnet.binancefuture.com/fapi/v1/time"
+    else:
+        url = "https://fapi.binance.com/fapi/v1/time"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()['serverTime']
+        else:
+            logger.error(f"Failed to get server time: {response.text}")
+            return int(time.time() * 1000)  # Fallback to local time
+    except Exception as e:
+        logger.error(f"Error getting server time: {str(e)}")
+        return int(time.time() * 1000)  # Fallback to local time
+
 def get_binance_futures_exchange_info(testnet=True):
     """Get futures exchange information directly from Binance API"""
     if testnet:
@@ -104,8 +122,8 @@ def get_account_positions(api_key, api_secret, testnet=True):
     else:
         base_url = "https://fapi.binance.com"
     
-    # Get server time
-    timestamp = int(time.time() * 1000)
+    # Get server time directly from Binance to avoid timestamp issues
+    timestamp = get_binance_server_time(testnet)
     
     # Generate query string
     query_string = f"timestamp={timestamp}"
@@ -128,12 +146,16 @@ def get_account_positions(api_key, api_secret, testnet=True):
     }
     
     # Make request
-    response = requests.get(url, headers=headers)
-    
-    if response.status_code == 200:
-        return response.json()
-    else:
-        logger.error(f"Failed to get positions: {response.text}")
+    try:
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logger.error(f"Failed to get positions: {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"Error retrieving positions: {str(e)}")
         return None
 
 def main():
@@ -145,170 +167,174 @@ def main():
     parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
     parser.add_argument('--range-percentage', type=float, default=2.0, 
                        help='Price range percentage above and below current price')
+    parser.add_argument('--monitor-only', action='store_true',
+                       help='Only monitor existing orders without creating new ones')
     
     args = parser.parse_args()
     
     # Create exchange client
     exchange_client = FuturesExchangeClient(args.api_key, args.api_secret, testnet=True)
     
-    # Get current price
-    current_price = exchange_client.get_ticker(args.pair)
-    if not current_price:
-        logger.error(f"Failed to get current price for {args.pair}")
-        return
-    
-    logger.info(f"Current price: {current_price}")
-    
-    # Get symbol info
-    symbol_info = get_binance_futures_symbol_info(args.pair, testnet=True)
-    if not symbol_info:
-        logger.error(f"Failed to get symbol info for {args.pair}")
-        return
-    
-    # Debug: Print all filters
-    logger.info("All filters:")
-    for i, filter_item in enumerate(symbol_info['filters']):
-        logger.info(f"  Filter #{i}: {filter_item}")
-    
-    # Extract important values using filter types instead of indices
-    min_qty = float(get_filter_value(symbol_info, 'LOT_SIZE', 'minQty') or 0.001)
-    step_size = float(get_filter_value(symbol_info, 'LOT_SIZE', 'stepSize') or 0.001)
-    tick_size = float(get_filter_value(symbol_info, 'PRICE_FILTER', 'tickSize') or 0.1)
-    
-    # Handle MIN_NOTIONAL filter differently since the structure might be different
-    min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'notional')
-    if min_notional_value is None:
-        # Try alternate field name
-        min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'minNotional')
-    
-    # If still not found, use a sensible default
-    min_notional = float(min_notional_value or 100.0)
-    
-    logger.info(f"Symbol: {symbol_info['symbol']} (Status: {symbol_info['status']})")
-    logger.info(f"Min Quantity: {min_qty}, Step Size: {step_size}")
-    logger.info(f"Tick Size: {tick_size}")
-    logger.info(f"Min Notional: {min_notional}")
-    
-    # Calculate grid parameters
-    range_factor = args.range_percentage / 100
-    lower_price = current_price * (1 - range_factor)
-    upper_price = current_price * (1 + range_factor)
-    
-    # Format prices
-    lower_price_str = format_price(lower_price, tick_size)
-    upper_price_str = format_price(upper_price, tick_size)
-    
-    logger.info(f"Grid range: {lower_price_str} to {upper_price_str}")
-    
-    # Calculate how many grids we can create
-    max_grids = math.floor(args.capital / min_notional)
-    if max_grids < 1:
-        logger.error(f"Not enough capital to create even 1 grid. Need at least {min_notional} USDT.")
-        return
-    
-    if max_grids < args.grids:
-        logger.warning(f"Can only create {max_grids} grids with {args.capital} USDT")
-        actual_grids = max_grids
+    # If monitor only, skip to the monitoring loop
+    if args.monitor_only:
+        logger.info("Monitor-only mode enabled. Skipping order creation.")
     else:
-        actual_grids = args.grids
-    
-    # Calculate USDT per grid
-    usdt_per_grid = args.capital / actual_grids
-    usdt_per_grid = max(usdt_per_grid, min_notional)
-    
-    logger.info(f"Using {actual_grids} grids with {usdt_per_grid:.2f} USDT per grid")
-    
-    # Calculate grid levels
-    grid_steps = actual_grids + 1
-    price_step = (float(upper_price_str) - float(lower_price_str)) / grid_steps
-    
-    # Create orders
-    logger.info("Creating grid orders...")
-    
-    orders = []
-    for i in range(actual_grids):
-        # Calculate grid price
-        grid_price = float(lower_price_str) + price_step * (i + 1)
-        grid_price_str = format_price(grid_price, tick_size)
+        # Get current price
+        current_price = exchange_client.get_ticker(args.pair)
+        if not current_price:
+            logger.error(f"Failed to get current price for {args.pair}")
+            return
         
-        # Alternate buy/sell orders
-        side = "buy" if i % 2 == 0 else "sell"
+        logger.info(f"Current price: {current_price}")
         
-        # Calculate quantity
-        btc_quantity = usdt_per_grid / float(grid_price_str)
-        qty_needed = max(btc_quantity, min_notional / float(grid_price_str))
-        order_size_str = format_quantity(qty_needed, step_size, min_qty)
+        # Get symbol info
+        symbol_info = get_binance_futures_symbol_info(args.pair, testnet=True)
+        if not symbol_info:
+            logger.error(f"Failed to get symbol info for {args.pair}")
+            return
         
-        # Calculate actual notional value
-        notional = float(order_size_str) * float(grid_price_str)
+        # Debug: Print all filters
+        logger.info("All filters:")
+        for i, filter_item in enumerate(symbol_info['filters']):
+            logger.info(f"  Filter #{i}: {filter_item}")
         
-        logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC (notional: {notional:.2f} USDT)")
+        # Extract important values using filter types instead of indices
+        min_qty = float(get_filter_value(symbol_info, 'LOT_SIZE', 'minQty') or 0.001)
+        step_size = float(get_filter_value(symbol_info, 'LOT_SIZE', 'stepSize') or 0.001)
+        tick_size = float(get_filter_value(symbol_info, 'PRICE_FILTER', 'tickSize') or 0.1)
         
-        # Ensure we meet min notional
-        if notional < min_notional:
-            logger.warning(f"Order notional too small. Adding buffer...")
-            qty_needed = min_notional / float(grid_price_str) * 1.01  # Add 1% buffer
-            order_size_str = format_quantity(qty_needed, step_size, min_qty)
-            notional = float(order_size_str) * float(grid_price_str)
-            logger.info(f"New order: {order_size_str} BTC (notional: {notional:.2f} USDT)")
+        # Handle MIN_NOTIONAL filter differently since the structure might be different
+        min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'notional')
+        if min_notional_value is None:
+            # Try alternate field name
+            min_notional_value = get_filter_value(symbol_info, 'MIN_NOTIONAL', 'minNotional')
         
-        # Create order
-        try:
-            order = exchange_client.create_order(
-                symbol=args.pair,
-                side=side,
-                amount=float(order_size_str),
-                price=float(grid_price_str)
-            )
+        # If still not found, use a sensible default
+        min_notional = float(min_notional_value or 100.0)
+        
+        logger.info(f"Symbol: {symbol_info['symbol']} (Status: {symbol_info['status']})")
+        logger.info(f"Min Quantity: {min_qty}, Step Size: {step_size}")
+        logger.info(f"Tick Size: {tick_size}")
+        logger.info(f"Min Notional: {min_notional}")
+        
+        # Calculate grid parameters
+        range_factor = args.range_percentage / 100
+        lower_price = current_price * (1 - range_factor)
+        upper_price = current_price * (1 + range_factor)
+        
+        # Format prices
+        lower_price_str = format_price(lower_price, tick_size)
+        upper_price_str = format_price(upper_price, tick_size)
+        
+        logger.info(f"Grid range: {lower_price_str} to {upper_price_str}")
+        
+        # Calculate how many grids we can create
+        max_grids = math.floor(args.capital / min_notional)
+        if max_grids < 1:
+            logger.error(f"Not enough capital to create even 1 grid. Need at least {min_notional} USDT.")
+            return
+        
+        if max_grids < args.grids:
+            logger.warning(f"Can only create {max_grids} grids with {args.capital} USDT")
+            actual_grids = max_grids
+        else:
+            actual_grids = args.grids
+        
+        # Calculate USDT per grid
+        usdt_per_grid = args.capital / actual_grids
+        usdt_per_grid = max(usdt_per_grid, min_notional)
+        
+        logger.info(f"Using {actual_grids} grids with {usdt_per_grid:.2f} USDT per grid")
+        
+        # Calculate grid levels
+        grid_steps = actual_grids + 1
+        price_step = (float(upper_price_str) - float(lower_price_str)) / grid_steps
+        
+        # Create orders
+        logger.info("Creating grid orders...")
+        
+        orders = []
+        for i in range(actual_grids):
+            # Calculate grid price
+            grid_price = float(lower_price_str) + price_step * (i + 1)
+            grid_price_str = format_price(grid_price, tick_size)
             
-            if order:
-                logger.info(f"Created order: {order}")
-                orders.append(order)
-        except Exception as e:
-            logger.error(f"Error creating order: {str(e)}")
-    
-    logger.info(f"Created {len(orders)} out of {actual_grids} orders")
-    
-    if orders:
-        logger.info("Monitoring orders... Press Ctrl+C to cancel orders and exit.")
+            # Alternate buy/sell orders
+            side = "buy" if i % 2 == 0 else "sell"
+            
+            # Calculate quantity
+            btc_quantity = usdt_per_grid / float(grid_price_str)
+            qty_needed = max(btc_quantity, min_notional / float(grid_price_str))
+            order_size_str = format_quantity(qty_needed, step_size, min_qty)
+            
+            # Calculate actual notional value
+            notional = float(order_size_str) * float(grid_price_str)
+            
+            logger.info(f"Creating {side} order at {grid_price_str} for {order_size_str} BTC (notional: {notional:.2f} USDT)")
+            
+            # Ensure we meet min notional
+            if notional < min_notional:
+                logger.warning(f"Order notional too small. Adding buffer...")
+                qty_needed = min_notional / float(grid_price_str) * 1.01  # Add 1% buffer
+                order_size_str = format_quantity(qty_needed, step_size, min_qty)
+                notional = float(order_size_str) * float(grid_price_str)
+                logger.info(f"New order: {order_size_str} BTC (notional: {notional:.2f} USDT)")
+            
+            # Create order
+            try:
+                order = exchange_client.create_order(
+                    symbol=args.pair,
+                    side=side,
+                    amount=float(order_size_str),
+                    price=float(grid_price_str)
+                )
+                
+                if order:
+                    logger.info(f"Created order: {order}")
+                    orders.append(order)
+            except Exception as e:
+                logger.error(f"Error creating order: {str(e)}")
         
-        try:
-            while True:
-                # Get open orders
-                open_orders = exchange_client.get_open_orders(args.pair)
-                logger.info(f"Open orders: {len(open_orders) if open_orders else 0}")
+        logger.info(f"Created {len(orders)} out of {actual_grids} orders")
+    
+    # Monitoring loop
+    logger.info("Monitoring orders... Press Ctrl+C to cancel orders and exit.")
+    
+    try:
+        while True:
+            # Get open orders
+            open_orders = exchange_client.get_open_orders(args.pair)
+            logger.info(f"Open orders: {len(open_orders) if open_orders else 0}")
+            
+            for order in open_orders or []:
+                logger.info(f"  Order {order['id']}: {order['side']} {order['amount']} @ {order['price']}")
+            
+            # Get account positions directly from API
+            positions = get_account_positions(args.api_key, args.api_secret, testnet=True)
+            active_positions = []
+            
+            if positions:
+                for pos in positions:
+                    if float(pos.get('positionAmt', 0)) != 0:
+                        active_positions.append(pos)
                 
-                for order in open_orders or []:
-                    logger.info(f"  Order {order['id']}: {order['side']} {order['amount']} @ {order['price']}")
-                
-                # Get account positions directly from API
-                positions = get_account_positions(args.api_key, args.api_secret, testnet=True)
-                active_positions = []
-                
-                if positions:
-                    for pos in positions:
-                        if float(pos.get('positionAmt', 0)) != 0:
-                            active_positions.append(pos)
-                    
-                    if active_positions:
-                        logger.info("Active positions:")
-                        for pos in active_positions:
-                            symbol = pos.get('symbol', '')
-                            amount = float(pos.get('positionAmt', 0))
-                            entry_price = float(pos.get('entryPrice', 0))
-                            pnl = float(pos.get('unRealizedProfit', 0))
-                            
-                            logger.info(f"  {symbol}: {amount} @ {entry_price} (PnL: {pnl:.2f} USDT)")
-                    else:
-                        logger.info("No active positions")
-                
-                time.sleep(10)
-        except KeyboardInterrupt:
-            logger.info("Cancelling all orders...")
-            exchange_client.cancel_all_orders(args.pair)
-            logger.info("Orders cancelled. Exiting.")
-    else:
-        logger.error("No orders created. Exiting.")
+                if active_positions:
+                    logger.info("Active positions:")
+                    for pos in active_positions:
+                        symbol = pos.get('symbol', '')
+                        amount = float(pos.get('positionAmt', 0))
+                        entry_price = float(pos.get('entryPrice', 0))
+                        pnl = float(pos.get('unRealizedProfit', 0))
+                        
+                        logger.info(f"  {symbol}: {amount} @ {entry_price} (PnL: {pnl:.2f} USDT)")
+                else:
+                    logger.info("No active positions")
+            
+            time.sleep(10)
+    except KeyboardInterrupt:
+        logger.info("Cancelling all orders...")
+        exchange_client.cancel_all_orders(args.pair)
+        logger.info("Orders cancelled. Exiting.")
 
 if __name__ == "__main__":
     main() 
