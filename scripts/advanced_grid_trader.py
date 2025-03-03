@@ -351,15 +351,26 @@ class GridTrader:
         else:
             logger.warning(f"Failed to set leverage to 2x for {self.symbol}. Using account default.")
         
-        # Continue with original implementation...
-        # Calculate grid levels
-        self.calculate_grid_levels()
+        # Initialize
+        if not self.initialize():
+            logger.error("Failed to initialize grid trader")
+            return
         
-        # Place initial orders
-        self.place_grid_orders()
+        # Create initial grid orders
+        if not self.create_grid_orders():
+            logger.error("Failed to create grid orders")
+            return
         
-        # Start monitoring
-        self.start_monitoring()
+        self.running = True
+        logger.info("Grid trader started! Press Ctrl+C to cancel orders and exit.")
+        
+        # Monitor loop
+        try:
+            while self.running:
+                self.monitor_orders()
+                time.sleep(10)
+        except KeyboardInterrupt:
+            self.stop()
     
     def stop(self):
         """Stop the grid trader"""

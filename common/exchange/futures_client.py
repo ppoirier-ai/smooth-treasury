@@ -275,4 +275,43 @@ class FuturesExchangeClient:
                 return {}
         except Exception as e:
             logger.error(f"Error getting account balance: {str(e)}")
-            return {} 
+            return {}
+
+    def set_leverage(self, symbol: str, leverage: int) -> bool:
+        """Set leverage for a symbol."""
+        timestamp = self._get_timestamp()
+        
+        # Prepare parameters - fix the encoding issue by ensuring a clean symbol string
+        # Remove quotes and ensure proper format
+        clean_symbol = symbol.replace('/', '').replace('"', '').replace('"', '').strip()
+        
+        params = {
+            'symbol': clean_symbol,
+            'leverage': leverage,
+            'timestamp': timestamp,
+            'recvWindow': 5000
+        }
+        
+        # Sign request
+        query_string, signature = self._sign_request(params)
+        url = f"{self.base_url}/fapi/v1/leverage?{query_string}&signature={signature}"
+        
+        # Log the URL being sent
+        logger.info(f"Setting leverage with URL: {self.base_url}/fapi/v1/leverage")
+        
+        # Prepare headers
+        headers = {
+            'X-MBX-APIKEY': self.api_key
+        }
+        
+        try:
+            response = requests.post(url, headers=headers)
+            if response.status_code == 200:
+                logger.info(f"Set leverage for {symbol} to {leverage}x")
+                return True
+            else:
+                logger.error(f"Failed to set leverage: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error setting leverage: {str(e)}")
+            return False 
