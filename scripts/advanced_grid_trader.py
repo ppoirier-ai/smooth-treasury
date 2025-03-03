@@ -342,31 +342,24 @@ class GridTrader:
                 logger.error(f"Error creating rebalance order: {str(e)}")
     
     def start(self):
-        """Start the grid trader"""
-        if self.running:
-            logger.warning("Grid trader already running")
-            return
+        """Start grid trading."""
+        logger.info(f"Starting grid trading for {self.symbol}")
         
-        # Initialize
-        if not self.initialize():
-            logger.error("Failed to initialize grid trader")
-            return
+        # Set leverage to 2x
+        if self.exchange.set_leverage(self.symbol, 2):
+            logger.info(f"Set leverage to 2x for {self.symbol}")
+        else:
+            logger.warning(f"Failed to set leverage to 2x for {self.symbol}. Using account default.")
         
-        # Create initial grid orders
-        if not self.create_grid_orders():
-            logger.error("Failed to create grid orders")
-            return
+        # Continue with original implementation...
+        # Calculate grid levels
+        self.calculate_grid_levels()
         
-        self.running = True
-        logger.info("Grid trader started! Press Ctrl+C to cancel orders and exit.")
+        # Place initial orders
+        self.place_grid_orders()
         
-        # Monitor loop
-        try:
-            while self.running:
-                self.monitor_orders()
-                time.sleep(10)
-        except KeyboardInterrupt:
-            self.stop()
+        # Start monitoring
+        self.start_monitoring()
     
     def stop(self):
         """Stop the grid trader"""
