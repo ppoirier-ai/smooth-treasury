@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import json
 import requests
+import uuid
 from urllib.parse import urlencode
 
 from common.exchange.base_client import BaseExchangeClient
@@ -29,36 +30,39 @@ class BybitClient(BaseExchangeClient):
         
         # Bybit API URLs
         self.base_url = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
-        self.v5_url = f"{self.base_url}/v5"
         
-        # Available market categories (linear/inverse/spot)
-        self.category = "linear"  # USDT-margined futures
+        # Configure for unified account
+        self.account_type = "UNIFIED"  # Unified account
         
-        # Initialize connection by fetching available symbols
-        try:
-            response = self._get_public("/v5/market/instruments-info", {"category": self.category})
-            
-            if response and "result" in response and "list" in response["result"]:
-                self.available_pairs = [item["symbol"] for item in response["result"]["list"]]
-                logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'}")
-                logger.info(f"Found {len(self.available_pairs)} available trading pairs")
-            else:
-                logger.error("Failed to fetch available symbols")
-                self.available_pairs = []
-        except Exception as e:
-            logger.error(f"Failed to connect to Bybit: {str(e)}")
-            raise
+        # Initialize connection by fetching available symbols for both linear and inverse futures
+        self.available_pairs = {}
+        self.categories = ["linear", "inverse"]
+        
+        for category in self.categories:
+            try:
+                response = self._get_public("/v5/market/instruments-info", {"category": category})
+                
+                if response and "result" in response and "list" in response["result"]:
+                    self.available_pairs[category] = [item["symbol"] for item in response["result"]["list"]]
+                    logger.info(f"Found {len(self.available_pairs[category])} available trading pairs in {category} category")
+                else:
+                    logger.error(f"Failed to fetch available symbols for {category}")
+                    self.available_pairs[category] = []
+            except Exception as e:
+                logger.error(f"Failed to fetch {category} symbols: {str(e)}")
+                self.available_pairs[category] = []
+        
+        logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
     
     def _get_timestamp(self) -> int:
         """Get current timestamp in milliseconds."""
         return int(time.time() * 1000)
     
-    def _generate_signature(self, query_string: str, timestamp: int) -> str:
+    def _generate_signature(self, params_str: str) -> str:
         """Generate signature for API request."""
-        param_str = str(timestamp) + self.api_key + query_string
         signature = hmac.new(
             bytes(self.api_secret, "utf-8"),
-            bytes(param_str, "utf-8"),
+            bytes(params_str, "utf-8"),
             hashlib.sha256
         ).hexdigest()
         return signature
@@ -80,25 +84,26 @@ class BybitClient(BaseExchangeClient):
     def _get_private(self, endpoint: str, params: Dict = None) -> Dict:
         """Make a private GET request to Bybit API."""
         timestamp = self._get_timestamp()
+        recv_window = 5000
         params = params or {}
-        query_string = urlencode(params)
         
-        signature = self._generate_signature(query_string, timestamp)
+        # Add required parameters
+        params["api_key"] = self.api_key
+        params["timestamp"] = timestamp
+        params["recv_window"] = recv_window
         
-        headers = {
-            "X-BAPI-API-KEY": self.api_key,
-            "X-BAPI-SIGN": signature,
-            "X-BAPI-SIGN-TYPE": "2",
-            "X-BAPI-TIMESTAMP": str(timestamp),
-            "Content-Type": "application/json"
-        }
+        # Sort parameters by key
+        sorted_params = dict(sorted(params.items()))
+        query_string = urlencode(sorted_params)
         
-        url = f"{self.base_url}{endpoint}"
-        if query_string:
-            url += f"?{query_string}"
+        # Generate signature
+        signature = self._generate_signature(query_string)
+        params["sign"] = signature
+        
+        url = f"{self.base_url}{endpoint}?{urlencode(params)}"
         
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -108,28 +113,56 @@ class BybitClient(BaseExchangeClient):
     def _post_private(self, endpoint: str, data: Dict = None) -> Dict:
         """Make a private POST request to Bybit API."""
         timestamp = self._get_timestamp()
+        recv_window = 5000
         data = data or {}
-        json_data = json.dumps(data)
         
-        signature = self._generate_signature(json_data, timestamp)
+        # Add required parameters
+        data["api_key"] = self.api_key
+        data["timestamp"] = timestamp
+        data["recv_window"] = recv_window
+        
+        # Sort parameters by key
+        sorted_data = dict(sorted(data.items()))
+        data_json = json.dumps(sorted_data)
+        
+        # Generate signature
+        signature = self._generate_signature(data_json)
         
         headers = {
             "X-BAPI-API-KEY": self.api_key,
             "X-BAPI-SIGN": signature,
             "X-BAPI-SIGN-TYPE": "2",
             "X-BAPI-TIMESTAMP": str(timestamp),
+            "X-BAPI-RECV-WINDOW": str(recv_window),
             "Content-Type": "application/json"
         }
         
         url = f"{self.base_url}{endpoint}"
         
         try:
-            response = requests.post(url, headers=headers, data=json_data)
+            response = requests.post(url, headers=headers, data=data_json)
             response.raise_for_status()
             return response.json()
         except Exception as e:
             logger.error(f"Error in private POST request to {endpoint}: {str(e)}")
             return {}
+    
+    def _detect_symbol_category(self, symbol: str) -> str:
+        """Detect whether a symbol belongs to linear or inverse category."""
+        normalized = self._normalize_symbol(symbol)
+        
+        # Check in inverse first (since we're focusing on BTCUSD)
+        if normalized in self.available_pairs.get("inverse", []):
+            return "inverse"
+        # Then check in linear
+        elif normalized in self.available_pairs.get("linear", []):
+            return "linear"
+        # Default to inverse for BTCUSD
+        elif normalized == "BTCUSD":
+            return "inverse"
+        # Default to linear for other
+        else:
+            return "linear"
     
     def _normalize_symbol(self, symbol: str) -> str:
         """Normalize symbol format for Bybit API."""
@@ -142,9 +175,10 @@ class BybitClient(BaseExchangeClient):
         """Get current ticker for a symbol."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
             
             params = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol
             }
             
@@ -161,7 +195,7 @@ class BybitClient(BaseExchangeClient):
                     "info": ticker_data
                 }
             else:
-                logger.warning(f"No ticker data found for {symbol}")
+                logger.warning(f"No ticker data found for {symbol} in {category} category")
                 return {}
         except Exception as e:
             logger.error(f"Error getting ticker: {str(e)}")
@@ -171,9 +205,10 @@ class BybitClient(BaseExchangeClient):
         """Get orderbook for a symbol."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
             
             params = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol,
                 "limit": 50  # Number of price levels to include
             }
@@ -192,7 +227,7 @@ class BybitClient(BaseExchangeClient):
                     "datetime": None
                 }
             else:
-                logger.warning(f"No orderbook data found for {symbol}")
+                logger.warning(f"No orderbook data found for {symbol} in {category} category")
                 return {"bids": [], "asks": []}
         except Exception as e:
             logger.error(f"Error getting orderbook: {str(e)}")
@@ -202,9 +237,10 @@ class BybitClient(BaseExchangeClient):
         """Set leverage for a symbol."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
             
             data = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol,
                 "buyLeverage": str(leverage),
                 "sellLeverage": str(leverage)
@@ -227,9 +263,11 @@ class BybitClient(BaseExchangeClient):
         """Get account balance."""
         try:
             params = {
-                "accountType": "CONTRACT",
-                "coin": currency
+                "accountType": self.account_type
             }
+            
+            if currency:
+                params["coin"] = currency
             
             response = self._get_private("/v5/account/wallet-balance", params)
             
@@ -237,7 +275,7 @@ class BybitClient(BaseExchangeClient):
                 for account in response["result"]["list"]:
                     if "coin" in account and len(account["coin"]) > 0:
                         for coin_data in account["coin"]:
-                            if coin_data["coin"] == currency:
+                            if not currency or coin_data["coin"] == currency:
                                 return {
                                     "free": float(coin_data.get("availableToWithdraw", 0)),
                                     "used": float(coin_data.get("walletBalance", 0)) - float(coin_data.get("availableToWithdraw", 0)),
@@ -257,15 +295,20 @@ class BybitClient(BaseExchangeClient):
         """Create a new order."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
+            
+            # Generate client order ID
+            client_order_id = f"bot_{uuid.uuid4().hex[:16]}"
             
             data = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol,
                 "side": side.upper(),
                 "orderType": "Limit",
                 "qty": str(amount),
                 "price": str(price),
-                "timeInForce": "PostOnly"
+                "timeInForce": "PostOnly",
+                "orderLinkId": client_order_id
             }
             
             response = self._post_private("/v5/order/create", data)
@@ -293,9 +336,10 @@ class BybitClient(BaseExchangeClient):
         """Cancel all orders for a symbol."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
             
             data = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol
             }
             
@@ -316,9 +360,10 @@ class BybitClient(BaseExchangeClient):
         """Get all open orders for a symbol."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
             
             params = {
-                "category": self.category,
+                "category": category,
                 "symbol": normalized_symbol
             }
             
@@ -347,12 +392,13 @@ class BybitClient(BaseExchangeClient):
     def get_positions(self, symbol: str = None) -> list:
         """Get current positions."""
         try:
-            params = {
-                "category": self.category
-            }
+            params = {}
             
             if symbol:
-                params["symbol"] = self._normalize_symbol(symbol)
+                normalized_symbol = self._normalize_symbol(symbol)
+                category = self._detect_symbol_category(symbol)
+                params["category"] = category
+                params["symbol"] = normalized_symbol
             
             response = self._get_private("/v5/position/list", params)
             

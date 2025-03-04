@@ -17,7 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description='Test Bybit API connection')
     parser.add_argument('api_key', type=str, help='API Key')
     parser.add_argument('api_secret', type=str, help='API Secret')
-    parser.add_argument('--symbol', type=str, default='BTC/USDT', help='Symbol (default: BTC/USDT)')
+    parser.add_argument('--symbol', type=str, default='BTC/USD', help='Symbol (default: BTC/USD for inverse)')
     parser.add_argument('--mainnet', action='store_true', help='Use mainnet instead of testnet')
     
     args = parser.parse_args()
@@ -41,15 +41,23 @@ def main():
         # Test orderbook
         logger.info(f"\n📚 Testing orderbook for {args.symbol}...")
         orderbook = client.get_orderbook(args.symbol)
-        logger.info(f"First few bids: {orderbook['bids'][:3]}")
-        logger.info(f"First few asks: {orderbook['asks'][:3]}")
+        if orderbook and 'bids' in orderbook and 'asks' in orderbook:
+            logger.info(f"First few bids: {orderbook['bids'][:3] if orderbook['bids'] else []}")
+            logger.info(f"First few asks: {orderbook['asks'][:3] if orderbook['asks'] else []}")
+        else:
+            logger.error(f"Failed to get orderbook: {orderbook}")
         
         time.sleep(1)
         
         # Test account balance
         logger.info("\n💰 Testing account balance...")
-        balance = client.get_account_balance()
-        logger.info(f"Balance: {balance}")
+        # Try BTC for inverse perpetual
+        balance = client.get_account_balance("BTC")
+        logger.info(f"BTC Balance: {balance}")
+        
+        # Also try USDT for other contracts
+        balance = client.get_account_balance("USDT")
+        logger.info(f"USDT Balance: {balance}")
         
         time.sleep(1)
         
