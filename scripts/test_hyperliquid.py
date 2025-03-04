@@ -1,8 +1,10 @@
 import sys
 import os
-import requests
 import json
 from typing import Dict, Any
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
+from hyperliquid.exchange import Exchange
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -12,42 +14,35 @@ from common.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 class HyperliquidTester:
-    def __init__(self, wallet_address: str, signature: str):
+    def __init__(self, wallet_address: str, signature: str, testnet: bool = False):
         self.wallet_address = wallet_address
         self.signature = signature
-        self.base_url = "https://api.hyperliquid.xyz/api/v1"
+        
+        # Initialize SDK clients
+        base_url = constants.TESTNET_URL if testnet else constants.MAINNET_URL
+        self.info = Info(base_url)
+        self.exchange = Exchange(base_url, wallet_address, signature)
         
     def test_connection(self) -> bool:
         """Test basic API connection."""
         try:
-            # Test public endpoint - get all markets
-            url = f"{self.base_url}/info/meta"
-            response = requests.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info("✅ Public API connection successful")
-                logger.info(f"API Response: {json.dumps(data, indent=2)}")
-                return True
-            else:
-                logger.error(f"❌ Public API connection failed: {response.text}")
-                return False
+            # Get exchange metadata
+            meta = self.info.meta()
+            logger.info("✅ API connection successful")
+            logger.info(f"Exchange metadata: {json.dumps(meta, indent=2)}")
+            return True
         except Exception as e:
             logger.error(f"❌ Connection test failed: {str(e)}")
             return False
     
-    def get_market_data(self, coin: str = "BTC") -> Dict[str, Any]:
+    def get_market_data(self) -> Dict[str, Any]:
         """Get current market data."""
         try:
-            url = f"{self.base_url}/info/allMids"
-            response = requests.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info("✅ Successfully retrieved market data")
-                logger.info(f"Price data: {json.dumps(data, indent=2)}")
-                return data
-            else:
-                logger.error(f"❌ Failed to get market data: {response.text}")
-                return {}
+            # Get all market prices
+            prices = self.info.all_mids()
+            logger.info("✅ Successfully retrieved market data")
+            logger.info(f"Price data: {json.dumps(prices, indent=2)}")
+            return prices
         except Exception as e:
             logger.error(f"❌ Error getting market data: {str(e)}")
             return {}
@@ -57,21 +52,11 @@ class HyperliquidTester:
         try:
             coin = coin.upper().strip()
             
-            url = f"{self.base_url}/info/l2Book"
-            data = {
-                "coin": coin,
-                "depth": 5  # Get top 5 levels
-            }
-            response = requests.post(url, json=data)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info(f"✅ Successfully retrieved orderbook for {coin}")
-                logger.info(f"Orderbook data: {json.dumps(data, indent=2)}")
-                return data
-            else:
-                logger.error(f"❌ Failed to get orderbook: {response.text}")
-                logger.info("Available coins: BTC, ETH, ARB, OP, etc.")
-                return {}
+            # Get L2 orderbook
+            orderbook = self.info.l2_book(coin)
+            logger.info(f"✅ Successfully retrieved orderbook for {coin}")
+            logger.info(f"Orderbook data: {json.dumps(orderbook, indent=2)}")
+            return orderbook
         except Exception as e:
             logger.error(f"❌ Error getting orderbook: {str(e)}")
             return {}
@@ -79,20 +64,11 @@ class HyperliquidTester:
     def get_user_state(self) -> Dict[str, Any]:
         """Get user's account state."""
         try:
-            url = f"{self.base_url}/info/user"
-            data = {
-                "type": "userState",
-                "user": self.wallet_address
-            }
-            response = requests.post(url, json=data)
-            if response.status_code == 200:
-                data = response.json()
-                logger.info("✅ Successfully retrieved user state")
-                logger.info(f"User state: {json.dumps(data, indent=2)}")
-                return data
-            else:
-                logger.error(f"❌ Failed to get user state: {response.text}")
-                return {}
+            # Get user state
+            user_state = self.info.user_state(self.wallet_address)
+            logger.info("✅ Successfully retrieved user state")
+            logger.info(f"User state: {json.dumps(user_state, indent=2)}")
+            return user_state
         except Exception as e:
             logger.error(f"❌ Error getting user state: {str(e)}")
             return {}
@@ -104,14 +80,15 @@ def main():
     parser.add_argument('wallet_address', type=str, help='Wallet Address')
     parser.add_argument('signature', type=str, help='Signature')
     parser.add_argument('--coin', type=str, default='BTC', help='Coin to test (default: BTC)')
+    parser.add_argument('--testnet', action='store_true', help='Use testnet')
     
     args = parser.parse_args()
     
-    tester = HyperliquidTester(args.wallet_address, args.signature)
+    tester = HyperliquidTester(args.wallet_address, args.signature, args.testnet)
     
     logger.info("🔍 Testing Hyperliquid API Connection...")
     
-    # Test basic connection and get markets
+    # Test basic connection
     if not tester.test_connection():
         logger.error("❌ Basic connection test failed. Exiting...")
         return
