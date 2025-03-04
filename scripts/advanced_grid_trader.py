@@ -29,6 +29,9 @@ from scripts.grid_trade_monitor import (
     format_quantity,
     get_account_positions
 )
+from common.exchange.factory import ExchangeFactory
+from common.bot.grid_bot import GridBot
+from common.utils.logger import setup_logger
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
@@ -411,28 +414,45 @@ class GridTrader:
 
 def main():
     parser = argparse.ArgumentParser(description='Advanced Grid Trading Bot')
-    parser.add_argument('api_key', help='Binance API key')
-    parser.add_argument('api_secret', help='Binance API secret')
-    parser.add_argument('pair', help='Trading pair, e.g. BTC/USDT')
-    parser.add_argument('capital', type=float, help='Capital to use for trading (in USDT)')
-    parser.add_argument('--grids', type=int, default=3, help='Number of grid levels')
-    parser.add_argument('--range-percentage', type=float, default=2.0, 
-                       help='Price range percentage above and below current price')
+    parser.add_argument('exchange', type=str, choices=['binance', 'hyperliquid'],
+                      help='Exchange to trade on (binance or hyperliquid)')
+    parser.add_argument('api_key', type=str, help='API Key')
+    parser.add_argument('api_secret', type=str, help='API Secret')
+    parser.add_argument('pair', type=str, help='Trading pair')
+    parser.add_argument('capital', type=float, help='Trading capital')
+    parser.add_argument('--grids', type=int, default=5, help='Number of grids')
+    parser.add_argument('--range-percentage', type=float, default=2.0,
+                      help='Grid range as percentage')
+    parser.add_argument('--testnet', action='store_true', help='Use testnet')
     
     args = parser.parse_args()
     
-    # Create grid trader
-    trader = GridTrader(
-        api_key=args.api_key,
-        api_secret=args.api_secret,
-        symbol=args.pair,
-        capital=args.capital,
-        grid_count=args.grids,
-        range_percentage=args.range_percentage
-    )
-    
-    # Start trading
-    trader.start()
+    # Create exchange client
+    try:
+        exchange = ExchangeFactory.create_exchange(
+            args.exchange,
+            args.api_key,
+            args.api_secret,
+            args.testnet
+        )
+        
+        # Create and run grid bot
+        bot = GridBot(
+            exchange=exchange,
+            symbol=args.pair,
+            capital=args.capital,
+            grid_count=args.grids,
+            range_percentage=args.range_percentage
+        )
+        
+        bot.start()
+        
+    except KeyboardInterrupt:
+        logger.info("Shutting down bot...")
+        if 'bot' in locals():
+            bot.stop()
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
 
 if __name__ == "__main__":
     main() 
