@@ -427,8 +427,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Create exchange client
     try:
+        # Create exchange client
         exchange = ExchangeFactory.create_exchange(
             args.exchange,
             args.api_key,
