@@ -1,3 +1,4 @@
+from typing import Dict, Any, Optional
 from common.exchange.base_client import BaseExchangeClient
 from common.utils.logger import setup_logger
 import requests
