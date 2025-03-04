@@ -56,6 +56,9 @@ class HyperliquidTester:
     def get_orderbook(self, coin: str = "BTC") -> Dict[str, Any]:
         """Get orderbook for a symbol."""
         try:
+            # Normalize coin name
+            coin = coin.upper().strip()
+            
             url = f"{self.base_url}/public/orderbook"
             params = {"coin": coin}
             response = requests.get(url, params=params)
@@ -66,6 +69,7 @@ class HyperliquidTester:
                 return data
             else:
                 logger.error(f"❌ Failed to get orderbook: {response.text}")
+                logger.info("Available coins: BTC, ETH, ARB, OP, etc.")
                 return {}
         except Exception as e:
             logger.error(f"❌ Error getting orderbook: {str(e)}")
