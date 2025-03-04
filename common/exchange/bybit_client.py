@@ -36,6 +36,9 @@ class BybitClient(BaseExchangeClient):
         # Configure for unified account
         self.account_type = "UNIFIED"  # Unified account
         
+        # Sync time with server
+        self._sync_time()
+        
         # Initialize connection by fetching available symbols for both linear and inverse futures
         self.available_pairs = {}
         self.categories = ["linear", "inverse"]
@@ -56,8 +59,35 @@ class BybitClient(BaseExchangeClient):
         
         logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
     
+    def _sync_time(self):
+        """Synchronize local time with Bybit server time."""
+        try:
+            response = self._get_public("/v5/market/time")
+            if response and "result" in response and "timeSecond" in response["result"]:
+                server_time = int(response["result"]["timeSecond"]) * 1000
+                local_time = int(time.time() * 1000)
+                time_diff = local_time - server_time
+                
+                if abs(time_diff) > 1000:  # If difference is more than 1 second
+                    logger.warning(f"Time difference between local and server: {time_diff}ms")
+                    # Store the offset to adjust future timestamps
+                    self.time_offset = time_diff
+                    return True
+                else:
+                    logger.info("Time is already synchronized with server")
+                    self.time_offset = 0
+                    return True
+            else:
+                logger.error("Failed to get server time")
+                return False
+        except Exception as e:
+            logger.error(f"Error syncing time: {str(e)}")
+            return False
+    
     def _get_timestamp(self) -> int:
-        """Get current timestamp in milliseconds."""
+        """Get current timestamp in milliseconds, adjusted for server time if needed."""
+        if hasattr(self, 'time_offset'):
+            return int(time.time() * 1000) - self.time_offset
         return int(time.time() * 1000)
     
     def _generate_signature(self, params_str: str) -> str:
@@ -136,23 +166,13 @@ class BybitClient(BaseExchangeClient):
     
     def _post_private(self, endpoint: str, data: Dict = None) -> Dict:
         """Make a private POST request to Bybit API."""
-        timestamp = self._get_timestamp()
-        recv_window = 5000
+        timestamp = str(self._get_timestamp())
+        recv_window = "5000"
         data = data or {}
         
-        # Add required parameters
-        data["timestamp"] = str(timestamp)
-        data["api_key"] = self.api_key
-        data["recv_window"] = str(recv_window)
-        
-        # Create signature string per Bybit V5 API docs
-        keys = sorted(data.keys())
-        param_str = ""
-        for key in keys:
-            param_str += f"{key}={data[key]}&"
-        
-        # Remove trailing &
-        param_str = param_str[:-1]
+        # Create parameter string for signature
+        # For POST requests with JSON body, Bybit requires a different signature format
+        param_str = timestamp + self.api_key + recv_window + json.dumps(data)
         
         # Generate signature
         signature = hmac.new(
@@ -165,9 +185,8 @@ class BybitClient(BaseExchangeClient):
         headers = {
             "X-BAPI-API-KEY": self.api_key,
             "X-BAPI-SIGN": signature,
-            "X-BAPI-SIGN-TYPE": "2",
-            "X-BAPI-TIMESTAMP": str(timestamp),
-            "X-BAPI-RECV-WINDOW": str(recv_window),
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window,
             "Content-Type": "application/json"
         }
         
