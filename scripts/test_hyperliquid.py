@@ -3,7 +3,6 @@ import os
 import json
 from typing import Dict, Any
 from hyperliquid.info import Info
-from hyperliquid.utils import constants
 from hyperliquid.exchange import Exchange
 
 # Add project root to path
@@ -19,10 +18,13 @@ class HyperliquidTester:
         self.signature = signature
         
         # Initialize SDK clients
-        base_url = constants.TESTNET_URL if testnet else constants.MAINNET_URL
+        # Hyperliquid URLs
+        base_url = "https://dev.hyperliquid.xyz" if testnet else "https://api.hyperliquid.xyz"
         self.info = Info(base_url)
         self.exchange = Exchange(base_url, wallet_address, signature)
         
+        logger.info(f"Using {'testnet' if testnet else 'mainnet'} at {base_url}")
+    
     def test_connection(self) -> bool:
         """Test basic API connection."""
         try:
