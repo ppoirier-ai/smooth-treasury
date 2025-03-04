@@ -12,22 +12,21 @@ from common.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 class HyperliquidTester:
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = False):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        # Hyperliquid mainnet and testnet use the same API endpoint
-        self.base_url = "https://api.hyperliquid.xyz"
+    def __init__(self, wallet_address: str, signature: str):
+        self.wallet_address = wallet_address
+        self.signature = signature
+        self.base_url = "https://api.hyperliquid.xyz/api/v1"
         
     def test_connection(self) -> bool:
         """Test basic API connection."""
         try:
             # Test public endpoint - get all markets
-            url = f"{self.base_url}/public/universe"
+            url = f"{self.base_url}/info/meta"
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json()
                 logger.info("✅ Public API connection successful")
-                logger.info(f"Available markets: {json.dumps(data, indent=2)}")
+                logger.info(f"API Response: {json.dumps(data, indent=2)}")
                 return True
             else:
                 logger.error(f"❌ Public API connection failed: {response.text}")
@@ -39,7 +38,7 @@ class HyperliquidTester:
     def get_market_data(self, coin: str = "BTC") -> Dict[str, Any]:
         """Get current market data."""
         try:
-            url = f"{self.base_url}/public/prices"
+            url = f"{self.base_url}/info/allMids"
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json()
@@ -56,12 +55,14 @@ class HyperliquidTester:
     def get_orderbook(self, coin: str = "BTC") -> Dict[str, Any]:
         """Get orderbook for a symbol."""
         try:
-            # Normalize coin name
             coin = coin.upper().strip()
             
-            url = f"{self.base_url}/public/orderbook"
-            params = {"coin": coin}
-            response = requests.get(url, params=params)
+            url = f"{self.base_url}/info/l2Book"
+            data = {
+                "coin": coin,
+                "depth": 5  # Get top 5 levels
+            }
+            response = requests.post(url, json=data)
             if response.status_code == 200:
                 data = response.json()
                 logger.info(f"✅ Successfully retrieved orderbook for {coin}")
@@ -78,15 +79,12 @@ class HyperliquidTester:
     def get_user_state(self) -> Dict[str, Any]:
         """Get user's account state."""
         try:
-            url = f"{self.base_url}/public/user_state"
-            headers = {
-                "Content-Type": "application/json"
-            }
+            url = f"{self.base_url}/info/user"
             data = {
-                "wallet": self.api_key,  # Wallet address is the API key
-                "signature": self.api_secret  # Signature is the API secret
+                "type": "userState",
+                "user": self.wallet_address
             }
-            response = requests.post(url, headers=headers, json=data)
+            response = requests.post(url, json=data)
             if response.status_code == 200:
                 data = response.json()
                 logger.info("✅ Successfully retrieved user state")
