@@ -15,8 +15,8 @@ logger = setup_logger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description='Test Bybit API connection')
-    parser.add_argument('api_key', type=str, help='API Key')
-    parser.add_argument('api_secret', type=str, help='API Secret')
+    parser.add_argument('--api_key', type=str, required=True, help='API Key')
+    parser.add_argument('--api_secret', type=str, required=True, help='API Secret')
     parser.add_argument('--symbol', type=str, default='BTC/USD', help='Symbol (default: BTC/USD for inverse)')
     parser.add_argument('--mainnet', action='store_true', help='Use mainnet instead of testnet')
     
@@ -28,8 +28,12 @@ def main():
     logger.info(f"Testing Bybit {network} API...")
     
     try:
-        # Initialize client
-        client = BybitClient(args.api_key, args.api_secret, testnet)
+        # Initialize client with named parameters
+        client = BybitClient(
+            api_key=args.api_key,
+            api_secret=args.api_secret,
+            testnet=testnet
+        )
         
         # Test ticker
         logger.info(f"\n📊 Testing ticker for {args.symbol}...")

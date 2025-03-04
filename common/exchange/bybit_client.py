@@ -23,7 +23,9 @@ class BybitClient(BaseExchangeClient):
             api_secret: API secret
             testnet: Whether to use testnet
         """
-        super().__init__()
+        # Call the parent constructor with the API credentials
+        super().__init__(api_key=api_key, api_secret=api_secret)
+        
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
