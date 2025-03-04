@@ -85,27 +85,49 @@ class BybitClient(BaseExchangeClient):
     
     def _get_private(self, endpoint: str, params: Dict = None) -> Dict:
         """Make a private GET request to Bybit API."""
-        timestamp = self._get_timestamp()
-        recv_window = 5000
+        timestamp = str(self._get_timestamp())
+        recv_window = "5000"
         params = params or {}
         
-        # Add required parameters
-        params["api_key"] = self.api_key
-        params["timestamp"] = timestamp
-        params["recv_window"] = recv_window
+        # Create query string for URL
+        query_string = ""
+        if params:
+            query_string = "?" + urlencode(params)
         
-        # Sort parameters by key
-        sorted_params = dict(sorted(params.items()))
-        query_string = urlencode(sorted_params)
+        # Create parameter string for signature
+        param_str = ""
+        
+        # Sort parameters alphabetically
+        params_for_signature = {}
+        params_for_signature.update(params)
+        keys = sorted(params_for_signature.keys())
+        
+        # Build param string
+        for key in keys:
+            param_str += f"{key}={params_for_signature[key]}&"
+        
+        # Add authentication parameters
+        param_str += f"api_key={self.api_key}&recv_window={recv_window}&timestamp={timestamp}"
         
         # Generate signature
-        signature = self._generate_signature(query_string)
-        params["sign"] = signature
+        signature = hmac.new(
+            bytes(self.api_secret, "utf-8"),
+            bytes(param_str, "utf-8"),
+            hashlib.sha256
+        ).hexdigest()
         
-        url = f"{self.base_url}{endpoint}?{urlencode(params)}"
+        # Set up headers according to Bybit documentation
+        headers = {
+            "X-BAPI-API-KEY": self.api_key,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-RECV-WINDOW": recv_window
+        }
+        
+        url = f"{self.base_url}{endpoint}{query_string}"
         
         try:
-            response = requests.get(url)
+            response = requests.get(url, headers=headers)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -119,17 +141,27 @@ class BybitClient(BaseExchangeClient):
         data = data or {}
         
         # Add required parameters
+        data["timestamp"] = str(timestamp)
         data["api_key"] = self.api_key
-        data["timestamp"] = timestamp
-        data["recv_window"] = recv_window
+        data["recv_window"] = str(recv_window)
         
-        # Sort parameters by key
-        sorted_data = dict(sorted(data.items()))
-        data_json = json.dumps(sorted_data)
+        # Create signature string per Bybit V5 API docs
+        keys = sorted(data.keys())
+        param_str = ""
+        for key in keys:
+            param_str += f"{key}={data[key]}&"
+        
+        # Remove trailing &
+        param_str = param_str[:-1]
         
         # Generate signature
-        signature = self._generate_signature(data_json)
+        signature = hmac.new(
+            bytes(self.api_secret, "utf-8"),
+            bytes(param_str, "utf-8"),
+            hashlib.sha256
+        ).hexdigest()
         
+        # Add signature to request headers
         headers = {
             "X-BAPI-API-KEY": self.api_key,
             "X-BAPI-SIGN": signature,
@@ -142,7 +174,7 @@ class BybitClient(BaseExchangeClient):
         url = f"{self.base_url}{endpoint}"
         
         try:
-            response = requests.post(url, headers=headers, data=data_json)
+            response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             return response.json()
         except Exception as e:
