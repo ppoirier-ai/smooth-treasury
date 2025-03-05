@@ -7,8 +7,20 @@ logger = setup_logger(__name__)
 def get_symbol_info(client, symbol):
     """Get detailed symbol information to determine quantity precision."""
     try:
-        # Extract base and quote currencies
-        base, quote = symbol.split('/')
+        # Extract base and quote currencies - handle both formats
+        if "/" in symbol:
+            base, quote = symbol.split('/')
+        else:
+            # For symbols like "BTCUSD"
+            # Default assumption: first 3 chars are base, rest is quote
+            # Better to have exchange-specific logic here
+            if symbol.endswith('USD'):
+                base = symbol[:-3]
+                quote = 'USD'
+            else:
+                # Generic fallback
+                base = symbol[:3]
+                quote = symbol[3:]
         
         # Get instrument info from Bybit
         category = client._detect_symbol_category(symbol)

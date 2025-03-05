@@ -205,28 +205,46 @@ class BybitClient(BaseExchangeClient):
             logger.error(f"Error in private POST request to {endpoint}: {str(e)}")
             return {}
     
-    def _detect_symbol_category(self, symbol: str) -> str:
-        """Detect whether a symbol belongs to linear or inverse category."""
-        normalized = self._normalize_symbol(symbol)
+    def _detect_symbol_category(self, symbol):
+        """Detect the symbol category (linear, inverse, spot, etc.)."""
+        # Remove any suffix like ':inverse'
+        base_symbol = symbol.split(':')[0]
         
-        # Check in inverse first (since we're focusing on BTCUSD)
+        # Normalize the symbol to exchange format
+        normalized = self._normalize_symbol(base_symbol)
+        
+        # First check if it's explicitly provided
+        if ':inverse' in symbol:
+            return "inverse"
+        
+        # Try to determine from available symbols
         if normalized in self.available_pairs.get("inverse", []):
             return "inverse"
-        # Then check in linear
         elif normalized in self.available_pairs.get("linear", []):
             return "linear"
-        # Default to inverse for BTCUSD
-        elif normalized == "BTCUSD":
+        
+        # Special cases
+        if normalized == "BTCUSD" or normalized.endswith("USD"):
             return "inverse"
-        # Default to linear for other
-        else:
+        if normalized.endswith("USDT"):
             return "linear"
+        
+        # Default to linear if we can't determine
+        logger.warning(f"Could not determine category for {symbol}, using linear")
+        return "linear"
     
-    def _normalize_symbol(self, symbol: str) -> str:
-        """Normalize symbol format for Bybit API."""
+    def _normalize_symbol(self, symbol):
+        """Normalize symbol name for Bybit API."""
+        # Handle special suffixes
+        if ':' in symbol:
+            symbol = symbol.split(':')[0]
+        
+        # Handle standard format with /
         if '/' in symbol:
-            base, quote = symbol.split('/')
-            return f"{base}{quote}"
+            parts = symbol.split('/')
+            return f"{parts[0]}{parts[1]}"
+        
+        # Already normalized (e.g., BTCUSD)
         return symbol
     
     def get_ticker(self, symbol: str) -> Dict[str, Any]:
