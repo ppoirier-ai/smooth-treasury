@@ -30,6 +30,10 @@ def test_direct_order(client, symbol, is_buy=True, amount=0.001):
         price = round(price, 2)  # Round to avoid precision issues
         
         logger.info(f"Placing {side} limit order: {amount} {symbol} @ {price}")
+        
+        # Debug the exact parameters being sent
+        logger.info(f"Order parameters: symbol={symbol}, side={side}, amount={amount}, price={price}")
+        
         order = client.create_order(
             symbol=symbol,
             side=side,
@@ -37,17 +41,21 @@ def test_direct_order(client, symbol, is_buy=True, amount=0.001):
             price=price
         )
         
-        logger.info(f"Order placed: {json.dumps(order, indent=2)}")
-        
-        # Wait a moment then cancel the order
-        time.sleep(2)
-        if order and "id" in order:
-            logger.info(f"Cancelling test order: {order['id']}")
-            result = client.cancel_order(symbol, order["id"])
-            logger.info(f"Cancel result: {result}")
-            return True
+        if order:
+            logger.info(f"Order placed: {json.dumps(order, indent=2)}")
+            
+            # Wait a moment then cancel the order
+            time.sleep(2)
+            if "id" in order:
+                logger.info(f"Cancelling test order: {order['id']}")
+                result = client.cancel_order(symbol, order["id"])
+                logger.info(f"Cancel result: {result}")
+                return True
+            else:
+                logger.error("Order placed but no order ID returned")
+                return False
         else:
-            logger.error("Failed to place test order - no order ID returned")
+            logger.error("Failed to place test order - null result returned")
             return False
     except Exception as e:
         logger.error(f"Error in test order: {str(e)}")

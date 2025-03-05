@@ -357,44 +357,42 @@ class BybitClient(BaseExchangeClient):
             return {"free": 0.0, "used": 0.0, "total": 0.0}  # Return empty balance rather than empty dict
     
     def create_order(self, symbol: str, side: str, amount: float, price: float) -> Optional[Dict]:
-        """Create a new order."""
+        """Create a new limit order."""
         try:
             normalized_symbol = self._normalize_symbol(symbol)
             category = self._detect_symbol_category(symbol)
             
-            # Generate client order ID
-            client_order_id = f"bot_{uuid.uuid4().hex[:16]}"
+            # Convert side to proper format for Bybit (first letter uppercase)
+            bybit_side = side.capitalize()  # Convert 'buy' -> 'Buy', 'sell' -> 'Sell'
             
+            # Create order data
             data = {
                 "category": category,
                 "symbol": normalized_symbol,
-                "side": side.upper(),
+                "side": bybit_side,  # Use properly formatted side
                 "orderType": "Limit",
-                "qty": str(amount),
                 "price": str(price),
-                "timeInForce": "PostOnly",
-                "orderLinkId": client_order_id
+                "qty": str(amount)
             }
             
             response = self._post_private("/v5/order/create", data)
             
-            if response and "retCode" in response and response["retCode"] == 0 and "result" in response:
-                order_data = response["result"]
+            if response and "result" in response and "orderId" in response["result"]:
                 return {
-                    "id": order_data.get("orderId", ""),
+                    "id": response["result"]["orderId"],
                     "symbol": symbol,
-                    "side": side,
-                    "amount": amount,
+                    "side": side.lower(),  # Keep consistent lowercase for our code
                     "price": price,
-                    "status": "new",
-                    "info": order_data
+                    "amount": amount,
+                    "status": "open",
+                    "info": response["result"]
                 }
             else:
                 error_msg = response.get("retMsg", "Unknown error") if response else "No response"
                 logger.error(f"Failed to create order: {error_msg}")
                 return None
         except Exception as e:
-            logger.error(f"Error creating order: {str(e)}")
+            logger.error(f"Failed to create order: {str(e)}")
             return None
     
     def cancel_all_orders(self, symbol: str) -> bool:
