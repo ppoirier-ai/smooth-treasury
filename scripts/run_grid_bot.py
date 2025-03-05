@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 import sys
 import os
+import time
+from datetime import datetime
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -53,7 +55,65 @@ bot = GridBot(
     range_percentage=range_percentage
 )
 
-print("Bot initialized. Starting...")
+print("Bot initialized.")
 
-# Start the bot
-bot.run()
+# Try to see what methods the bot has
+try:
+    print("\nAvailable methods:")
+    methods = [method for method in dir(bot) if callable(getattr(bot, method)) and not method.startswith("__")]
+    print(methods)
+except Exception as e:
+    print(f"Could not list methods: {str(e)}")
+
+# Since there's no run() method, let's try to use the bot's methods
+print("\nStarting manual grid bot loop...")
+print(f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+try:
+    # Setup the grid (if there's a setup method)
+    if hasattr(bot, 'setup_grid'):
+        print("Setting up grid...")
+        bot.setup_grid()
+    
+    # Try to place initial orders
+    if hasattr(bot, 'place_grid_orders'):
+        print("Placing initial grid orders...")
+        bot.place_grid_orders()
+    
+    # Monitor and adjust (simple example)
+    run_time = 60  # Run for 60 seconds as a test
+    print(f"Monitoring for {run_time} seconds...")
+    
+    start_time = time.time()
+    while time.time() - start_time < run_time:
+        # Get current price
+        current_price = client.get_ticker(symbol)["last"]
+        print(f"{datetime.now().strftime('%H:%M:%S')} - Current price: {current_price}")
+        
+        # Try to update grid or handle orders
+        if hasattr(bot, 'update_grid'):
+            bot.update_grid()
+        elif hasattr(bot, 'check_and_update'):
+            bot.check_and_update()
+        elif hasattr(bot, 'manage_orders'):
+            bot.manage_orders()
+        
+        # Sleep to avoid hammering the API
+        time.sleep(5)
+    
+    print(f"Test completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+except KeyboardInterrupt:
+    print("\nBot stopped by user.")
+except Exception as e:
+    print(f"Error running bot: {str(e)}")
+finally:
+    # Clean up resources or cancel orders if needed
+    if hasattr(bot, 'cancel_all_orders'):
+        print("Cancelling all orders...")
+        bot.cancel_all_orders()
+    elif hasattr(bot, 'cleanup'):
+        print("Cleaning up...")
+        bot.cleanup()
+    
+    print("Bot stopped.")
