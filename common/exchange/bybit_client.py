@@ -495,4 +495,34 @@ class BybitClient(BaseExchangeClient):
             return float(value)
         except (ValueError, TypeError):
             logger.warning(f"Could not convert value to float: {value}, using default {default}")
-            return default 
+            return default
+    
+    def cancel_order(self, symbol: str, order_id: str) -> Optional[Dict]:
+        """Cancel a specific order by ID."""
+        try:
+            normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
+            
+            data = {
+                "category": category,
+                "symbol": normalized_symbol,
+                "orderId": order_id
+            }
+            
+            response = self._post_private("/v5/order/cancel", data)
+            
+            if response and "retCode" in response and response["retCode"] == 0:
+                logger.info(f"Successfully cancelled order: {order_id}")
+                return {
+                    "id": order_id,
+                    "symbol": symbol,
+                    "status": "cancelled",
+                    "info": response["result"]
+                }
+            else:
+                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                logger.error(f"Failed to cancel order: {error_msg}")
+                return None
+        except Exception as e:
+            logger.error(f"Error cancelling order: {str(e)}")
+            return None 
