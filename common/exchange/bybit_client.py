@@ -317,7 +317,7 @@ class BybitClient(BaseExchangeClient):
             logger.error(f"Error setting leverage: {str(e)}")
             return False
     
-    def get_account_balance(self, currency: str = "USDT") -> Dict[str, Any]:
+    def get_account_balance(self, currency: str = None) -> Dict:
         """Get account balance."""
         try:
             params = {
@@ -334,10 +334,17 @@ class BybitClient(BaseExchangeClient):
                     if "coin" in account and len(account["coin"]) > 0:
                         for coin_data in account["coin"]:
                             if not currency or coin_data["coin"] == currency:
+                                # Safely convert values with handling for empty strings
+                                available = coin_data.get("availableToWithdraw", "0")
+                                available = float(available) if available else 0.0
+                                
+                                wallet_balance = coin_data.get("walletBalance", "0")
+                                wallet_balance = float(wallet_balance) if wallet_balance else 0.0
+                                
                                 return {
-                                    "free": float(coin_data.get("availableToWithdraw", 0)),
-                                    "used": float(coin_data.get("walletBalance", 0)) - float(coin_data.get("availableToWithdraw", 0)),
-                                    "total": float(coin_data.get("walletBalance", 0))
+                                    "free": available,
+                                    "used": wallet_balance - available,
+                                    "total": wallet_balance
                                 }
                 
                 logger.warning(f"No balance data found for {currency}")
@@ -347,7 +354,7 @@ class BybitClient(BaseExchangeClient):
                 return {"free": 0.0, "used": 0.0, "total": 0.0}
         except Exception as e:
             logger.error(f"Error getting balance: {str(e)}")
-            return {}
+            return {"free": 0.0, "used": 0.0, "total": 0.0}  # Return empty balance rather than empty dict
     
     def create_order(self, symbol: str, side: str, amount: float, price: float) -> Optional[Dict]:
         """Create a new order."""
@@ -434,8 +441,8 @@ class BybitClient(BaseExchangeClient):
                         "id": order_data.get("orderId", ""),
                         "symbol": symbol,
                         "side": order_data.get("side", "").lower(),
-                        "amount": float(order_data.get("qty", 0)),
-                        "price": float(order_data.get("price", 0)),
+                        "amount": self._safe_float(order_data.get("qty", 0)),
+                        "price": self._safe_float(order_data.get("price", 0)),
                         "status": order_data.get("orderStatus", "").lower(),
                         "info": order_data
                     })
@@ -463,14 +470,15 @@ class BybitClient(BaseExchangeClient):
             if response and "result" in response and "list" in response["result"]:
                 positions = []
                 for position_data in response["result"]["list"]:
-                    if float(position_data.get("size", 0)) > 0:
+                    size = self._safe_float(position_data.get("size", 0))
+                    if size > 0:
                         positions.append({
                             "symbol": position_data.get("symbol", ""),
                             "side": "long" if position_data.get("side", "") == "Buy" else "short",
-                            "amount": float(position_data.get("size", 0)),
-                            "entry_price": float(position_data.get("avgPrice", 0)),
-                            "unrealized_pnl": float(position_data.get("unrealisedPnl", 0)),
-                            "leverage": float(position_data.get("leverage", 0)),
+                            "amount": size,
+                            "entry_price": self._safe_float(position_data.get("avgPrice", 0)),
+                            "unrealized_pnl": self._safe_float(position_data.get("unrealisedPnl", 0)),
+                            "leverage": self._safe_float(position_data.get("leverage", 0)),
                             "info": position_data
                         })
                 return positions
@@ -479,4 +487,14 @@ class BybitClient(BaseExchangeClient):
                 return []
         except Exception as e:
             logger.error(f"Error getting positions: {str(e)}")
-            return [] 
+            return []
+    
+    def _safe_float(self, value, default=0.0):
+        """Safely convert a value to float."""
+        if value is None or value == '':
+            return default
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not convert value to float: {value}, using default {default}")
+            return default 
