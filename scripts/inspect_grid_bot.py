@@ -17,8 +17,20 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Print constructor signature
+print("GridBot constructor signature:")
+print(inspect.signature(GridBot.__init__))
+
+# Print docstring if available
+print("\nGridBot docstring:")
+print(GridBot.__init__.__doc__ or "No docstring available")
+
+# Print class docstring if available
+print("\nGridBot class docstring:")
+print(GridBot.__doc__ or "No class docstring available")
+
 # Print GridBot constructor source code
-print("GridBot constructor source code:")
+print("\nGridBot constructor source code:")
 print(inspect.getsource(GridBot.__init__))
 
 # Print the exact grid bot implementation

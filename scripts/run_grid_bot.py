@@ -33,17 +33,21 @@ print(f"Grid range: {lower_price:.2f} to {upper_price:.2f}")
 print(f"Grid levels: {grid_levels}")
 print(f"Allocation: {allocation} USDT")
 
+# Try printing the GridBot signature to understand what parameters it accepts
+try:
+    import inspect
+    print("\nGridBot constructor signature:")
+    print(inspect.signature(GridBot.__init__))
+except Exception as e:
+    print(f"Could not print GridBot signature: {e}")
+
 # Create and run the grid bot
-# Adapting parameters to what GridBot expects
+# Trying with the most basic/common parameter names
 bot = GridBot(
     exchange=client,
     symbol=symbol,
-    # Using parameters that are likely expected by GridBot
-    min_price=lower_price,
-    max_price=upper_price,
-    num_grids=grid_levels,
     capital=allocation,
-    test_mode=True  # Set to False for real trading
+    test_mode=True
 )
 
 print("Bot initialized. Starting...")
