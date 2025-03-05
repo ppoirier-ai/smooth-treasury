@@ -478,12 +478,54 @@ class DirectionalGridBot:
             self.stop()
     
     def stop(self):
-        """Stop the grid bot."""
+        """Stop the grid bot and clean up."""
         logger.info(f"Stopping {self.direction} grid bot...")
         self.running = False
         
         # Cancel all orders
         self.cancel_all_orders()
         
+        # Close any open positions if requested
+        if hasattr(self, 'close_positions_on_exit') and self.close_positions_on_exit:
+            logger.info("Closing all open positions...")
+            self._close_all_positions()
+        
         # Print final summary
-        self.print_summary() 
+        self.print_summary()
+
+    def _close_all_positions(self):
+        """Close all open positions."""
+        try:
+            # Get current positions for this symbol
+            positions = self.exchange.get_positions(self.symbol)
+            
+            if not positions:
+                logger.info(f"No open positions to close for {self.symbol}")
+                return
+            
+            for position in positions:
+                size = position.get("amount", 0)
+                side = position.get("side", "")
+                
+                if size <= 0:
+                    continue
+                
+                logger.info(f"Closing {side} position of {size} {self.symbol}")
+                
+                # Create opposite order to close
+                close_side = "sell" if side == "long" else "buy"
+                
+                # Place market order to close position
+                result = self.exchange.create_market_order(
+                    symbol=self.symbol,
+                    side=close_side,
+                    amount=size
+                )
+                
+                if result:
+                    logger.info(f"Successfully closed position: {result.get('id', 'unknown')}")
+                else:
+                    logger.error(f"Failed to close position for {self.symbol}")
+        
+        except Exception as e:
+            logger.error(f"Error closing positions: {str(e)}") 

@@ -29,6 +29,8 @@ parser.add_argument('--direction', choices=['long', 'short'], default='long', he
 parser.add_argument('--leverage', type=int, default=2, help='Leverage to use (1 = no leverage)')
 parser.add_argument('--initial-position', type=float, default=50.0, 
                    help='Percentage of capital for initial position (0-100)')
+parser.add_argument('--close-on-exit', action='store_true', 
+                    help='Close all positions when the bot exits')
 args = parser.parse_args()
 
 # Main functionality
@@ -60,6 +62,9 @@ try:
         leverage=args.leverage,
         initial_position_pct=args.initial_position
     )
+    
+    # Add this property for exit behavior
+    bot.close_positions_on_exit = args.close_on_exit
     
     # Set timeout for the bot
     end_time = time.time() + args.duration
