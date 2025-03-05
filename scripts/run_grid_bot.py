@@ -55,65 +55,70 @@ bot = GridBot(
     range_percentage=range_percentage
 )
 
-print("Bot initialized.")
+print("Bot created. Available methods:")
+methods = [method for method in dir(bot) if callable(getattr(bot, method)) and not method.startswith("__")]
+print(methods)
 
-# Try to see what methods the bot has
-try:
-    print("\nAvailable methods:")
-    methods = [method for method in dir(bot) if callable(getattr(bot, method)) and not method.startswith("__")]
-    print(methods)
-except Exception as e:
-    print(f"Could not list methods: {str(e)}")
+# First, initialize the grid
+print("\nInitializing grid...")
+if hasattr(bot, 'initialize_grid'):
+    bot.initialize_grid()
 
-# Since there's no run() method, let's try to use the bot's methods
-print("\nStarting manual grid bot loop...")
+# Print a summary before starting
+if hasattr(bot, 'print_summary'):
+    print("\nGrid Summary:")
+    bot.print_summary()
+
+# Start the bot with a time limit
+run_duration = 300  # Run for 5 minutes
+print(f"\nStarting grid bot for {run_duration} seconds...")
 print(f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 try:
-    # Setup the grid (if there's a setup method)
-    if hasattr(bot, 'setup_grid'):
-        print("Setting up grid...")
-        bot.setup_grid()
-    
-    # Try to place initial orders
-    if hasattr(bot, 'place_grid_orders'):
-        print("Placing initial grid orders...")
-        bot.place_grid_orders()
-    
-    # Monitor and adjust (simple example)
-    run_time = 60  # Run for 60 seconds as a test
-    print(f"Monitoring for {run_time} seconds...")
-    
-    start_time = time.time()
-    while time.time() - start_time < run_time:
-        # Get current price
-        current_price = client.get_ticker(symbol)["last"]
-        print(f"{datetime.now().strftime('%H:%M:%S')} - Current price: {current_price}")
+    # Start the bot
+    if hasattr(bot, 'start'):
+        bot.start()  # This should start the actual grid bot logic
         
-        # Try to update grid or handle orders
-        if hasattr(bot, 'update_grid'):
-            bot.update_grid()
-        elif hasattr(bot, 'check_and_update'):
-            bot.check_and_update()
-        elif hasattr(bot, 'manage_orders'):
-            bot.manage_orders()
+        # Keep the script running for the specified duration
+        start_time = time.time()
+        while time.time() - start_time < run_duration:
+            # Print current price and time periodically
+            current_price = client.get_ticker(symbol)["last"]
+            print(f"{datetime.now().strftime('%H:%M:%S')} - Current price: {current_price}")
+            
+            # Sleep to avoid flooding the console
+            time.sleep(10)
+            
+            # Optionally check profit
+            if hasattr(bot, 'calculate_profit'):
+                profit = bot.calculate_profit()
+                print(f"Current profit: {profit}")
+    else:
+        print("ERROR: Bot does not have a 'start' method!")
         
-        # Sleep to avoid hammering the API
-        time.sleep(5)
-    
-    print(f"Test completed at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
 except KeyboardInterrupt:
     print("\nBot stopped by user.")
 except Exception as e:
     print(f"Error running bot: {str(e)}")
 finally:
-    # Clean up resources or cancel orders if needed
+    # Stop the bot properly
+    if hasattr(bot, 'stop'):
+        print("\nStopping bot...")
+        bot.stop()
+    
+    # Cancel any remaining orders
     if hasattr(bot, 'cancel_all_orders'):
         print("Cancelling all orders...")
         bot.cancel_all_orders()
-    elif hasattr(bot, 'cleanup'):
-        print("Cleaning up...")
-        bot.cleanup()
     
-    print("Bot stopped.")
+    print(f"\nBot session ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Final profit calculation
+    if hasattr(bot, 'calculate_profit'):
+        final_profit = bot.calculate_profit()
+        print(f"Final profit: {final_profit}")
+    
+    # Final summary
+    if hasattr(bot, 'print_summary'):
+        print("\nFinal Grid Summary:")
+        bot.print_summary()
