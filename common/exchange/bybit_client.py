@@ -85,9 +85,18 @@ class BybitClient(BaseExchangeClient):
             return False
     
     def _get_timestamp(self) -> int:
-        """Get current timestamp in milliseconds, adjusted for server time if needed."""
+        """Get current timestamp in milliseconds directly from server if possible."""
+        try:
+            response = self._get_public("/v5/market/time")
+            if response and "result" in response and "timeSecond" in response["result"]:
+                return int(response["result"]["timeSecond"]) * 1000
+        except:
+            pass
+        
+        # Fallback to local time with offset
         if hasattr(self, 'time_offset'):
             return int(time.time() * 1000) - self.time_offset
+        
         return int(time.time() * 1000)
     
     def _generate_signature(self, params_str: str) -> str:
@@ -119,25 +128,18 @@ class BybitClient(BaseExchangeClient):
         recv_window = "5000"
         params = params or {}
         
-        # Create query string for URL
+        # For GET requests with query parameters, we need to include them in the signature
+        # First, create the query string for the URL
         query_string = ""
         if params:
-            query_string = "?" + urlencode(params)
+            # Sort parameters alphabetically and create the query string
+            sorted_params = dict(sorted(params.items()))
+            query_string = "&".join([f"{k}={v}" for k, v in sorted_params.items()])
         
-        # Create parameter string for signature
-        param_str = ""
-        
-        # Sort parameters alphabetically
-        params_for_signature = {}
-        params_for_signature.update(params)
-        keys = sorted(params_for_signature.keys())
-        
-        # Build param string
-        for key in keys:
-            param_str += f"{key}={params_for_signature[key]}&"
-        
-        # Add authentication parameters
-        param_str += f"api_key={self.api_key}&recv_window={recv_window}&timestamp={timestamp}"
+        # Create signature using timestamp + api_key + recv_window + query (if any)
+        param_str = timestamp + self.api_key + recv_window
+        if query_string:
+            param_str += query_string
         
         # Generate signature
         signature = hmac.new(
@@ -146,7 +148,7 @@ class BybitClient(BaseExchangeClient):
             hashlib.sha256
         ).hexdigest()
         
-        # Set up headers according to Bybit documentation
+        # Set headers
         headers = {
             "X-BAPI-API-KEY": self.api_key,
             "X-BAPI-SIGN": signature,
@@ -154,7 +156,10 @@ class BybitClient(BaseExchangeClient):
             "X-BAPI-RECV-WINDOW": recv_window
         }
         
-        url = f"{self.base_url}{endpoint}{query_string}"
+        # Construct the URL with query parameters if any
+        url = f"{self.base_url}{endpoint}"
+        if query_string:
+            url += f"?{query_string}"
         
         try:
             response = requests.get(url, headers=headers)
@@ -170,9 +175,9 @@ class BybitClient(BaseExchangeClient):
         recv_window = "5000"
         data = data or {}
         
-        # Create parameter string for signature
-        # For POST requests with JSON body, Bybit requires a different signature format
-        param_str = timestamp + self.api_key + recv_window + json.dumps(data)
+        # For POST requests, create signature using timestamp + api_key + recv_window + json_body
+        json_body = json.dumps(data)
+        param_str = timestamp + self.api_key + recv_window + json_body
         
         # Generate signature
         signature = hmac.new(
@@ -181,7 +186,7 @@ class BybitClient(BaseExchangeClient):
             hashlib.sha256
         ).hexdigest()
         
-        # Add signature to request headers
+        # Set headers
         headers = {
             "X-BAPI-API-KEY": self.api_key,
             "X-BAPI-SIGN": signature,
