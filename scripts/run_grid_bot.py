@@ -23,14 +23,17 @@ symbol = "BTC/USDT"
 current_price = client.get_ticker(symbol)["last"]
 print(f"Current {symbol} price: {current_price}")
 
-# Calculate grid boundaries (10% range)
-lower_price = current_price * 0.95
-upper_price = current_price * 1.05
-grid_levels = 10
+# Set grid parameters
+grid_count = 10  # Number of grid levels
+range_percentage = 10.0  # 10% range around current price
 allocation = 5000  # Amount to allocate in USDT
 
-print(f"Grid range: {lower_price:.2f} to {upper_price:.2f}")
-print(f"Grid levels: {grid_levels}")
+# Calculate the effective price range for information
+lower_price = current_price * (1 - range_percentage/100)
+upper_price = current_price * (1 + range_percentage/100)
+
+print(f"Grid range: {lower_price:.2f} to {upper_price:.2f} ({range_percentage}% range)")
+print(f"Grid levels: {grid_count}")
 print(f"Allocation: {allocation} USDT")
 
 # Try printing the GridBot signature to understand what parameters it accepts
@@ -41,13 +44,13 @@ try:
 except Exception as e:
     print(f"Could not print GridBot signature: {e}")
 
-# Create and run the grid bot
-# Trying with the most basic/common parameter names
+# Create the grid bot using the correct parameters
 bot = GridBot(
     exchange=client,
     symbol=symbol,
     capital=allocation,
-    test_mode=True
+    grid_count=grid_count,
+    range_percentage=range_percentage
 )
 
 print("Bot initialized. Starting...")
