@@ -525,4 +525,42 @@ class BybitClient(BaseExchangeClient):
                 return None
         except Exception as e:
             logger.error(f"Error cancelling order: {str(e)}")
+            return None
+    
+    def create_market_order(self, symbol: str, side: str, amount: float) -> Optional[Dict]:
+        """Create a new market order."""
+        try:
+            normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
+            
+            # Convert side to proper format for Bybit
+            bybit_side = side.capitalize()  # Convert 'buy' -> 'Buy', 'sell' -> 'Sell'
+            
+            # Create order data
+            data = {
+                "category": category,
+                "symbol": normalized_symbol,
+                "side": bybit_side,
+                "orderType": "Market",
+                "qty": str(amount)
+            }
+            
+            response = self._post_private("/v5/order/create", data)
+            
+            if response and "result" in response and "orderId" in response["result"]:
+                logger.info(f"Market order placed: {response['result']['orderId']}")
+                return {
+                    "id": response["result"]["orderId"],
+                    "symbol": symbol,
+                    "side": side.lower(),
+                    "amount": amount,
+                    "status": "filled",  # Market orders are usually filled immediately
+                    "info": response["result"]
+                }
+            else:
+                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                logger.error(f"Failed to create market order: {error_msg}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to create market order: {str(e)}")
             return None 
