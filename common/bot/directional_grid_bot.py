@@ -27,233 +27,164 @@ class DirectionalGridBot:
         Args:
             exchange: The exchange client instance
             symbol: Trading pair symbol (e.g., 'BTC/USDT')
-            capital: Total capital to use
+            capital: Total capital to use (in quote currency)
             grid_count: Number of grid levels
             range_percentage: Price range percentage
-            direction: Trading direction ("long" or "short")
+            direction: Trading direction ('long' or 'short')
             leverage: Leverage to use (1 = no leverage)
             initial_position_pct: Percentage of capital to use for initial position (0-100)
         """
         self.exchange = exchange
         self.symbol = symbol
-        self.capital = capital
+        self.total_capital = capital  # Total capital in quote currency (e.g., USDT)
         self.grid_count = grid_count
         self.range_percentage = range_percentage
         self.direction = direction
         self.leverage = leverage
         self.initial_position_pct = initial_position_pct
         
-        self.running = False
+        # Get symbol information
+        self.symbol_info = get_symbol_info(exchange, symbol)
+        logger.info(f"Symbol info: {self.symbol_info}")
+        
+        # Initialize state
+        self.active_positions = {}  # order_id -> order details
         self.filled_orders = []
-        self.active_positions = {}  # Dict to track active positions
+        self.running = False
         
-        # Get current price to calculate grid
-        ticker = self.exchange.get_ticker(self.symbol)
-        self.current_price = ticker["last"]
+        # Calculate current price
+        self.current_price = self._get_current_price()
+        logger.info(f"Current price: {self.current_price}")
         
-        # Get symbol precision info
-        self.symbol_info = get_symbol_info(self.exchange, self.symbol)
-        logger.info(f"Symbol precision: Min Qty={self.symbol_info['min_qty']}, Qty Step={self.symbol_info['qty_step']}")
-        
-        # Calculate grid boundaries based on direction
-        if self.direction == "long":
-            # For long bias, we focus more on the downside for buying opportunities
-            self.upper_price = self.current_price * (1 + self.range_percentage / 100)
-            self.lower_price = self.current_price * (1 - (self.range_percentage * 1.5) / 100)
-        else:  # short
-            # For short bias, we focus more on the upside for selling opportunities
-            self.upper_price = self.current_price * (1 + (self.range_percentage * 1.5) / 100)
-            self.lower_price = self.current_price * (1 - self.range_percentage / 100)
-        
-        # Adjust boundaries to valid price levels
-        self.lower_price = float(adjust_price(self.lower_price, self.symbol_info))
-        self.upper_price = float(adjust_price(self.upper_price, self.symbol_info))
-        
-        logger.info(f"Directional ({self.direction}) grid setup for {self.symbol}: Current price: {self.current_price}")
-        logger.info(f"Range: {self.lower_price:.2f} to {self.upper_price:.2f}")
-        
-        # Calculate order size and initial position size
-        self._calculate_position_sizes()
-        
-        # Set leverage if supported
+        # Set leverage
         self._set_leverage()
+        
+        # Calculate grid levels based on direction
+        self._calculate_grid_levels()
+        
+        # Calculate order size (per grid)
+        self._calculate_order_size()
+        
+        logger.info(f"Initialized {direction}biased grid bot for {symbol}")
+        logger.info(f"Total capital: {self.total_capital} using {self.leverage}x leverage")
+        logger.info(f"Grid range: {self.lower_price} to {self.upper_price} with {self.grid_count} levels")
+        logger.info(f"Order size per grid: {self.order_size} ({self.total_capital / self.grid_count} divided by price)")
+    
+    def _calculate_grid_levels(self):
+        """Calculate grid price levels based on direction."""
+        half_range = self.range_percentage / 100.0 / 2
+        
+        if self.direction == "long":
+            # For long bias, we want more buy levels below current price
+            self.lower_price = self.current_price * (1 - half_range * 1.5)  # More room below
+            self.upper_price = self.current_price * (1 + half_range * 0.5)  # Less room above
+        else:  # short bias
+            # For short bias, we want more sell levels above current price
+            self.lower_price = self.current_price * (1 - half_range * 0.5)  # Less room below
+            self.upper_price = self.current_price * (1 + half_range * 1.5)  # More room above
+        
+        # Calculate grid step
+        self.grid_step = (self.upper_price - self.lower_price) / (self.grid_count - 1)
+        
+        # Generate grid levels
+        self.grid_levels = []
+        for i in range(self.grid_count):
+            price = self.lower_price + i * self.grid_step
+            adjusted_price = float(adjust_price(price, self.symbol_info))
+            self.grid_levels.append(adjusted_price)
+        
+        logger.info(f"Grid levels: {self.grid_levels}")
+    
+    def _calculate_order_size(self):
+        """Calculate the size of each grid order."""
+        # Calculate the per-grid capital allocation
+        capital_per_grid = self.total_capital / self.grid_count
+        
+        # Convert capital to base currency amount using average price
+        avg_price = (self.lower_price + self.upper_price) / 2
+        base_amount = capital_per_grid / avg_price
+        
+        # Apply leverage if using futures
+        if self.leverage > 1:
+            base_amount = base_amount * self.leverage
+        
+        # Adjust for precision requirements
+        self.order_size = adjust_quantity(base_amount, self.symbol_info)
+        
+        logger.info(f"Capital per grid: {capital_per_grid} -> Order size: {self.order_size}")
+        
+        # Calculate initial position size
+        if self.initial_position_pct > 0:
+            self.initial_position_size = base_amount * (self.initial_position_pct / 100.0)
+            self.initial_position_size = adjust_quantity(self.initial_position_size, self.symbol_info)
+            logger.info(f"Initial position size: {self.initial_position_size} ({self.initial_position_pct}% of capital)")
+        else:
+            self.initial_position_size = 0
+    
+    def _get_current_price(self):
+        """Get current market price."""
+        ticker = self.exchange.get_ticker(self.symbol)
+        if not ticker or "last" not in ticker:
+            raise ValueError(f"Could not get current price for {self.symbol}")
+        return ticker["last"]
     
     def _set_leverage(self):
-        """Set leverage for the trading pair if supported."""
-        if hasattr(self.exchange, 'set_leverage') and self.leverage > 1:
-            try:
-                result = self.exchange.set_leverage(self.symbol, self.leverage)
-                if result:
-                    logger.info(f"Successfully set leverage to {self.leverage}x for {self.symbol}")
-                else:
-                    logger.warning(f"Failed to set leverage for {self.symbol}. Using account default.")
-            except Exception as e:
-                logger.error(f"Error setting leverage: {str(e)}")
+        """Set leverage for the symbol if using futures."""
+        if self.leverage > 1:
+            result = self.exchange.set_leverage(self.symbol, self.leverage)
+            logger.info(f"Set leverage to {self.leverage}x: {result}")
     
-    def _calculate_position_sizes(self):
-        """Calculate initial position size and grid order sizes."""
-        # Calculate initial position size
-        self.initial_position_capital = self.capital * (self.initial_position_pct / 100)
-        self.initial_position_size = self.initial_position_capital / self.current_price
+    def place_initial_position(self):
+        """Place initial position if configured."""
+        if self.initial_position_pct <= 0 or self.initial_position_size <= 0:
+            logger.info("No initial position configured")
+            return
         
-        # Adjust to valid quantity
-        self.initial_position_size = float(adjust_quantity(self.initial_position_size, self.symbol_info))
+        logger.info(f"Placing initial {self.direction} position of {self.initial_position_size}...")
         
-        # Calculate grid order size (remaining capital divided by grid count)
-        remaining_capital = self.capital - self.initial_position_capital
-        grid_capital_per_level = remaining_capital / self.grid_count
+        # For long bias, we buy; for short bias, we sell
+        side = "buy" if self.direction == "long" else "sell"
         
-        if self.direction == "long":
-            # For long, we size orders to increase position as price falls
-            raw_grid_order_size = grid_capital_per_level / self.lower_price
-        else:
-            # For short, we size orders to increase position as price rises
-            raw_grid_order_size = grid_capital_per_level / self.upper_price
-        
-        # Adjust to valid quantity
-        self.grid_order_size = adjust_quantity(raw_grid_order_size, self.symbol_info)
-        
-        logger.info(f"Initial position: {self.initial_position_size} {self.symbol.split('/')[0]} " +
-                   f"(~{self.initial_position_capital:.2f} USDT)")
-        logger.info(f"Grid order size: {self.grid_order_size} {self.symbol.split('/')[0]} per level")
-    
-    def _take_initial_position(self):
-        """Take the initial position based on direction."""
+        # Use market price for initial position
         try:
-            if self.initial_position_pct <= 0:
-                logger.info("No initial position requested, skipping.")
+            order = self.exchange.create_market_order(
+                symbol=self.symbol,
+                side=side,
+                amount=float(self.initial_position_size)
+            )
+            
+            if order and "id" in order:
+                logger.info(f"Initial position placed: {order['id']}")
                 return True
-            
-            logger.info(f"Taking initial {self.direction} position of {self.initial_position_size} {self.symbol.split('/')[0]}...")
-            
-            # For long bias, we buy the initial position at market
-            if self.direction == "long":
-                side = "buy"
-            else:  # short
-                side = "sell"
-            
-            # Place market order for initial position
-            # Note: This assumes exchange client has a create_market_order method
-            # You might need to implement this in your exchange client
-            if hasattr(self.exchange, 'create_market_order'):
-                order = self.exchange.create_market_order(
-                    symbol=self.symbol,
-                    side=side,
-                    amount=float(self.initial_position_size)
-                )
-                
-                if order and "id" in order:
-                    logger.info(f"Initial position established: {order['id']}")
-                    self.filled_orders.append({
-                        **order,
-                        "fill_time": datetime.now(),
-                        "fill_price": order.get("price", self.current_price),
-                        "fill_amount": order.get("amount", self.initial_position_size),
-                        "is_initial": True
-                    })
-                    return True
-                else:
-                    logger.error("Failed to establish initial position")
-                    return False
             else:
-                # Fallback to limit order if market order not supported
-                # Place a limit order slightly worse than market price to ensure fill
-                price_adjustment = 0.99 if self.direction == "long" else 1.01
-                adjusted_price = self.current_price * price_adjustment
-                adjusted_price = float(adjust_price(adjusted_price, self.symbol_info))
-                
-                logger.info(f"Market order not supported, using limit order at {adjusted_price}")
-                
-                order = self.exchange.create_order(
-                    symbol=self.symbol,
-                    side=side,
-                    amount=float(self.initial_position_size),
-                    price=adjusted_price
-                )
-                
-                if order and "id" in order:
-                    logger.info(f"Initial position order placed: {order['id']}")
-                    # Wait briefly for the order to fill
-                    time.sleep(5)
-                    # Check if order was filled
-                    # This would require implementing an order status check in your exchange client
-                    return True
-                else:
-                    logger.error("Failed to place initial position order")
-                    return False
+                logger.error("Failed to place initial position")
+                return False
         except Exception as e:
-            logger.error(f"Error taking initial position: {str(e)}")
+            logger.error(f"Error placing initial position: {str(e)}")
             return False
     
-    def initialize_grid(self):
-        """Initialize the grid by placing directional orders."""
-        logger.info(f"Initializing {self.direction} directional grid...")
+    def place_grid_orders(self):
+        """Place grid orders according to the calculated levels."""
+        logger.info("Placing grid orders...")
         
-        # First, take initial position if needed
-        if self.initial_position_pct > 0:
-            if not self._take_initial_position():
-                logger.error("Failed to establish initial position, aborting grid setup")
-                return False
-        
-        # Calculate grid levels
-        price_step = (self.upper_price - self.lower_price) / self.grid_count
-        price_levels = []
-        
-        for i in range(self.grid_count + 1):
-            price = self.lower_price + (i * price_step)
-            adjusted_price = float(adjust_price(price, self.symbol_info))
-            price_levels.append(adjusted_price)
-        
-        logger.info(f"Created {len(price_levels)} price levels")
-        
-        # Place orders based on direction
         orders_placed = 0
         
-        for price in price_levels:
-            # Skip if too close to current price
-            if abs(price - self.current_price) / self.current_price < 0.001:
-                logger.info(f"Skipping level {price} (too close to current price)")
-                continue
-            
-            # For long bias:
-            # - Buy orders below current price (to buy dips)
-            # - Sell orders above current price (to take profit)
-            # For short bias:
-            # - Sell orders above current price (to sell rallies)
-            # - Buy orders below current price (to take profit)
-            
+        for i, price in enumerate(self.grid_levels):
+            # Determine order side based on direction and grid level
             if self.direction == "long":
-                # Long bias
-                if price < self.current_price:
-                    # Buy orders below (increasing position on dips)
-                    side = "buy"
-                    order_size = self.grid_order_size  # Buy more as price drops
-                else:
-                    # Sell orders above (taking profit)
-                    side = "sell"
-                    # Calculate sell size based on a portion of position
-                    sell_size = float(self.initial_position_size) / self.grid_count
-                    order_size = adjust_quantity(sell_size, self.symbol_info)
-            else:
-                # Short bias
-                if price > self.current_price:
-                    # Sell orders above (increasing short position on rallies)
-                    side = "sell"
-                    order_size = self.grid_order_size  # Sell more as price rises
-                else:
-                    # Buy orders below (taking profit on shorts)
-                    side = "buy"
-                    # Calculate buy size based on a portion of position
-                    buy_size = float(self.initial_position_size) / self.grid_count
-                    order_size = adjust_quantity(buy_size, self.symbol_info)
+                # For long bias: buy at lower levels, sell at higher levels
+                side = "buy" if i < (self.grid_count // 2) else "sell"
+            else:  # short bias
+                # For short bias: sell at higher levels, buy at lower levels
+                side = "sell" if i > (self.grid_count // 2) else "buy"
             
-            # Place the grid order
             try:
-                logger.info(f"Placing {side} order: {order_size} @ {price}")
+                logger.info(f"Placing {side} order at {price} for {self.order_size}")
+                
                 order = self.exchange.create_order(
                     symbol=self.symbol,
                     side=side,
-                    amount=float(order_size),
+                    amount=float(self.order_size),
                     price=price
                 )
                 
@@ -267,90 +198,68 @@ class DirectionalGridBot:
             except Exception as e:
                 logger.error(f"Error placing grid order: {str(e)}")
         
-        logger.info(f"Successfully placed {orders_placed} directional grid orders")
+        logger.info(f"Placed {orders_placed} grid orders")
         return orders_placed > 0
     
     def monitor_and_update(self):
-        """Monitor open orders and update grid if needed."""
-        try:
-            # Get open orders
-            open_orders = self.exchange.get_open_orders(self.symbol)
-            open_order_ids = [order["id"] for order in open_orders]
-            
-            logger.info(f"Monitoring {len(open_orders)} open orders...")
-            
-            # Check for filled orders
-            for order_id in list(self.active_positions.keys()):
-                if order_id not in open_order_ids:
-                    # This order is no longer open, handle as filled
-                    logger.info(f"Order {order_id} appears to be filled")
-                    filled_order = self.active_positions[order_id]
-                    
-                    # Record fill info
-                    self.filled_orders.append({
-                        **filled_order,
-                        "fill_time": datetime.now(),
-                        "fill_price": filled_order["price"],
-                        "fill_amount": filled_order["amount"]
-                    })
-                    
-                    # Remove from active positions
-                    del self.active_positions[order_id]
-                    
-                    # Place a new order based on direction and strategy
-                    self._handle_fill_directional(filled_order)
-            
-        except Exception as e:
-            logger.error(f"Error monitoring orders: {str(e)}")
+        """Monitor orders and update grid as needed."""
+        logger.info("Checking order status...")
+        
+        # Get current open orders
+        open_orders = self.exchange.get_open_orders(self.symbol)
+        open_order_ids = set(order["id"] for order in open_orders if "id" in order)
+        
+        # Check for filled orders
+        filled_orders = []
+        for order_id, order_info in list(self.active_positions.items()):
+            if order_id not in open_order_ids:
+                # Order not in open orders, assume it was filled
+                logger.info(f"Order {order_id} was likely filled")
+                filled_orders.append(order_info)
+                del self.active_positions[order_id]
+        
+        # Handle filled orders
+        for filled_order in filled_orders:
+            self.filled_orders.append(filled_order)
+            self._handle_fill_directional(filled_order)
     
     def _handle_fill_directional(self, filled_order):
-        """Handle a filled order based on directional strategy."""
+        """Handle a filled order in directional grid strategy."""
         try:
-            price = filled_order["price"]
-            side = filled_order["side"]
+            logger.info(f"Handling fill for {filled_order}")
             
-            # For long bias:
-            # - If buy order filled (dip), place a sell order higher
-            # - If sell order filled (profit), place a buy order lower
-            # For short bias:
-            # - If sell order filled (rally), place a buy order lower
-            # - If buy order filled (profit), place a sell order higher
+            # Determine the new order side (opposite of filled order)
+            filled_side = filled_order.get("side", "")
+            new_side = "sell" if filled_side == "buy" else "buy"
             
+            # Get fill price and amount
+            fill_price = filled_order.get("price", 0)
+            fill_amount = filled_order.get("amount", 0)
+            
+            # For directional strategy, we place the next order at a profit target
             if self.direction == "long":
-                if side == "buy":
-                    # Buy order filled, place sell order above
-                    new_side = "sell"
-                    # Calculate profit target (e.g., 1% above buy price)
-                    new_price = price * 1.01
-                    new_price = float(adjust_price(new_price, self.symbol_info))
-                    new_amount = filled_order["amount"]  # Sell same amount we bought
+                if new_side == "sell":
+                    # If we're selling after a buy, place order higher
+                    price_adjustment = 1.01  # 1% higher
                 else:
-                    # Sell order filled, place buy order below
-                    new_side = "buy"
-                    # Calculate new buy price (e.g., 1% below sell price)
-                    new_price = price * 0.99
-                    new_price = float(adjust_price(new_price, self.symbol_info))
-                    # Buy same amount we sold
-                    new_amount = filled_order["amount"]
-            else:  # short
-                if side == "sell":
-                    # Sell order filled, place buy order below
-                    new_side = "buy"
-                    # Calculate profit target (e.g., 1% below sell price)
-                    new_price = price * 0.99
-                    new_price = float(adjust_price(new_price, self.symbol_info))
-                    new_amount = filled_order["amount"]  # Buy same amount we sold
+                    # If we're buying after a sell, place order lower
+                    price_adjustment = 0.99  # 1% lower
+            else:  # short bias
+                if new_side == "buy":
+                    # If we're buying after a sell, place order lower
+                    price_adjustment = 0.99  # 1% lower
                 else:
-                    # Buy order filled, place sell order above
-                    new_side = "sell"
-                    # Calculate new sell price (e.g., 1% above buy price)
-                    new_price = price * 1.01
-                    new_price = float(adjust_price(new_price, self.symbol_info))
-                    # Sell same amount we bought
-                    new_amount = filled_order["amount"]
+                    # If we're selling after a buy, place order higher
+                    price_adjustment = 1.01  # 1% higher
             
-            # Place the new order
-            logger.info(f"Placing new {new_side} order: {new_amount} @ {new_price} after fill")
+            # Calculate new price
+            new_price = fill_price * price_adjustment
+            new_price = float(adjust_price(new_price, self.symbol_info))
+            
+            # Use same amount as the filled order
+            new_amount = fill_amount
+            
+            logger.info(f"Placing new {new_side} order at {new_price} for {new_amount}")
             
             order = self.exchange.create_order(
                 symbol=self.symbol,
@@ -368,164 +277,95 @@ class DirectionalGridBot:
         except Exception as e:
             logger.error(f"Error handling fill: {str(e)}")
     
+    def start(self):
+        """Start the grid trading bot."""
+        logger.info("Starting directional grid bot...")
+        self.running = True
+        
+        # Place initial position if configured
+        if self.initial_position_pct > 0:
+            self.place_initial_position()
+        
+        # Place grid orders
+        if not self.place_grid_orders():
+            logger.error("Failed to place grid orders, stopping bot")
+            self.running = False
+            return
+        
+        logger.info("Grid bot started successfully")
+        
+        # Initial status summary
+        self.print_summary()
+    
+    def stop(self):
+        """Stop the grid trading bot."""
+        logger.info("Stopping directional grid bot...")
+        self.running = False
+        
+        # Cancel all open orders
+        self.cancel_all_orders()
+        
+        # Final status
+        self.print_summary()
+    
+    def cancel_all_orders(self):
+        """Cancel all open orders."""
+        logger.info("Cancelling all open orders...")
+        result = self.exchange.cancel_all_orders(self.symbol)
+        if result:
+            logger.info("All orders cancelled successfully")
+            self.active_positions = {}
+        else:
+            logger.error("Failed to cancel all orders")
+    
     def calculate_profit(self):
-        """Calculate total profit from filled orders."""
-        # This is more complex for directional strategies
-        # We need to account for the initial position and current market value
+        """Calculate current profit from filled orders."""
+        if not self.filled_orders:
+            return 0.0
         
         total_profit = 0.0
-        initial_capital = self.initial_position_capital
         
-        # Sum up the profit/loss from individual trades
-        for order in self.filled_orders:
-            if order.get("is_initial", False):
-                # Skip initial position establishment
-                continue
+        # Group orders by side
+        buys = [order for order in self.filled_orders if order.get("side") == "buy"]
+        sells = [order for order in self.filled_orders if order.get("side") == "sell"]
+        
+        # Sort by price
+        buys.sort(key=lambda x: x.get("price", 0))
+        sells.sort(key=lambda x: x.get("price", 0))
+        
+        # Match buy and sell orders to calculate profit
+        pairs_matched = min(len(buys), len(sells))
+        
+        if pairs_matched > 0:
+            for i in range(pairs_matched):
+                buy_price = buys[i]["price"]
+                sell_price = sells[i]["price"]
+                amount = float(self.order_size)
                 
-            if self.direction == "long":
-                if order["side"] == "buy":
-                    # Buying more costs money
-                    total_profit -= float(order["amount"]) * float(order["price"])
-                else:  # sell
-                    # Selling generates income
-                    total_profit += float(order["amount"]) * float(order["price"])
-            else:  # short
-                if order["side"] == "sell":
-                    # Selling generates income
-                    total_profit += float(order["amount"]) * float(order["price"])
-                else:  # buy
-                    # Buying costs money
-                    total_profit -= float(order["amount"]) * float(order["price"])
+                # Profit is the difference between sell and buy prices
+                profit = (sell_price - buy_price) * amount
+                total_profit += profit
         
-        # Get current market value of position
-        # This would require a more complex position tracking mechanism
-        # For simplicity, we're just reporting realized PnL from grid trades
-        
-        logger.info(f"Calculated grid trading profit: {total_profit:.8f} USDT")
+        logger.info(f"Calculated profit from {pairs_matched} matched pairs: {total_profit:.8f}")
         return total_profit
     
     def print_summary(self):
         """Print a summary of the grid bot status."""
-        logger.info("\n=== Directional Grid Bot Summary ===")
+        logger.info("\n=== Grid Bot Summary ===")
         logger.info(f"Symbol: {self.symbol}")
-        logger.info(f"Direction: {self.direction}")
         logger.info(f"Grid Range: {self.lower_price:.2f} to {self.upper_price:.2f}")
         logger.info(f"Grid Levels: {self.grid_count}")
-        logger.info(f"Initial Position: {self.initial_position_size} {self.symbol.split('/')[0]}")
-        logger.info(f"Grid Order Size: {self.grid_order_size} {self.symbol.split('/')[0]}")
-        logger.info(f"Leverage: {self.leverage}x")
+        logger.info(f"Total Capital: {self.total_capital} using {self.leverage}x leverage")
+        logger.info(f"Order Size: {self.order_size} per grid")
+        logger.info(f"Direction: {self.direction}")
         logger.info(f"Active Orders: {len(self.active_positions)}")
         logger.info(f"Filled Orders: {len(self.filled_orders)}")
         
         profit = self.calculate_profit()
-        logger.info(f"Trading Profit: {profit:.8f} USDT")
+        logger.info(f"Total Profit: {profit:.8f} USDT")
         
         # Print active positions if any
         if self.active_positions:
-            logger.info("\nActive Orders:")
+            logger.info("\nActive Positions:")
             for order_id, order in self.active_positions.items():
-                logger.info(f"  {order['side']} {order['amount']} @ {order['price']} (ID: {order_id})")
-    
-    def cancel_all_orders(self):
-        """Cancel all open orders."""
-        logger.info("Cancelling all orders...")
-        
-        # Use exchange's cancel_all_orders method if available
-        if hasattr(self.exchange, 'cancel_all_orders'):
-            result = self.exchange.cancel_all_orders(self.symbol)
-            if result:
-                logger.info(f"Successfully cancelled all orders for {self.symbol}")
-                self.active_positions = {}
-            else:
-                logger.error(f"Failed to cancel orders for {self.symbol}")
-        else:
-            # Manually cancel each order
-            cancelled = 0
-            for order_id in list(self.active_positions.keys()):
-                try:
-                    if hasattr(self.exchange, 'cancel_order'):
-                        result = self.exchange.cancel_order(self.symbol, order_id)
-                        if result:
-                            logger.info(f"Cancelled order: {order_id}")
-                            del self.active_positions[order_id]
-                            cancelled += 1
-                except Exception as e:
-                    logger.error(f"Error cancelling order {order_id}: {str(e)}")
-            
-            logger.info(f"Cancelled {cancelled} orders")
-    
-    def start(self):
-        """Start the directional grid bot."""
-        logger.info(f"Starting {self.direction} grid bot for {self.symbol}")
-        self.running = True
-        
-        # Initialize the grid
-        if not self.initialize_grid():
-            logger.error("Failed to initialize grid, stopping bot")
-            self.running = False
-            return
-        
-        # Start monitoring in a loop
-        try:
-            while self.running:
-                self.monitor_and_update()
-                time.sleep(10)  # Check every 10 seconds
-        except KeyboardInterrupt:
-            logger.info("Grid bot stopped by user")
-            self.stop()
-        except Exception as e:
-            logger.error(f"Error in grid bot main loop: {str(e)}")
-            self.stop()
-    
-    def stop(self):
-        """Stop the grid bot and clean up."""
-        logger.info(f"Stopping {self.direction} grid bot...")
-        self.running = False
-        
-        # Cancel all orders
-        self.cancel_all_orders()
-        
-        # Close any open positions if requested
-        if hasattr(self, 'close_positions_on_exit') and self.close_positions_on_exit:
-            logger.info("Closing all open positions...")
-            self._close_all_positions()
-        
-        # Print final summary
-        self.print_summary()
-
-    def _close_all_positions(self):
-        """Close all open positions."""
-        try:
-            # Get current positions for this symbol
-            positions = self.exchange.get_positions(self.symbol)
-            
-            if not positions:
-                logger.info(f"No open positions to close for {self.symbol}")
-                return
-            
-            for position in positions:
-                size = position.get("amount", 0)
-                side = position.get("side", "")
-                
-                if size <= 0:
-                    continue
-                
-                logger.info(f"Closing {side} position of {size} {self.symbol}")
-                
-                # Create opposite order to close
-                close_side = "sell" if side == "long" else "buy"
-                
-                # Place market order to close position
-                result = self.exchange.create_market_order(
-                    symbol=self.symbol,
-                    side=close_side,
-                    amount=size
-                )
-                
-                if result:
-                    logger.info(f"Successfully closed position: {result.get('id', 'unknown')}")
-                else:
-                    logger.error(f"Failed to close position for {self.symbol}")
-        
-        except Exception as e:
-            logger.error(f"Error closing positions: {str(e)}") 
+                logger.info(f"  {order['side']} {order['amount']} @ {order['price']} (ID: {order_id})") 

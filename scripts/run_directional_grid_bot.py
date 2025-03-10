@@ -20,7 +20,7 @@ logger = setup_logger(__name__)
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Run a directional grid trading bot')
 parser.add_argument('--symbol', type=str, default='BTC/USDT', help='Trading pair symbol')
-parser.add_argument('--capital', type=float, default=100, help='Total capital to use')
+parser.add_argument('--capital', type=float, default=100, help='Total capital to use in quote currency (e.g., USDT)')
 parser.add_argument('--grid-count', type=int, default=5, help='Number of grid levels')
 parser.add_argument('--range-pct', type=float, default=3.0, help='Price range percentage')
 parser.add_argument('--duration', type=int, default=300, help='Bot run duration in seconds')
@@ -28,30 +28,35 @@ parser.add_argument('--testnet', action='store_true', help='Use testnet instead 
 parser.add_argument('--direction', choices=['long', 'short'], default='long', help='Trading direction')
 parser.add_argument('--leverage', type=int, default=2, help='Leverage to use (1 = no leverage)')
 parser.add_argument('--initial-position', type=float, default=50.0, 
-                   help='Percentage of capital for initial position (0-100)')
+                   help='Percentage of capital to use for initial position (0-100)')
 parser.add_argument('--close-on-exit', action='store_true', 
                     help='Close all positions when the bot exits')
 args = parser.parse_args()
 
 # Main functionality
 try:
-    # Initialize Bybit client
+    # Initialize exchange client
     client = BybitClient(
         api_key="bcRYdfdO4Z7INAFPcE",
         api_secret="BmACyMG0LoWygr3p03fCv4E4fxrjtrsRsiir",
-        testnet=args.testnet
+        testnet=True if args.testnet else False
     )
     
-    print(f"Starting {args.direction} grid bot for {args.symbol}")
-    print(f"Settings: Capital=${args.capital}, Grid Levels={args.grid_count}, Range={args.range_pct}%")
-    print(f"Leverage: {args.leverage}x, Initial Position: {args.initial_position}%")
+    print(f"Starting directional grid bot for {args.symbol}...")
+    print(f"Direction: {args.direction} bias with {args.leverage}x leverage")
+    print(f"Total capital: {args.capital} USDT to be distributed across {args.grid_count} grid levels")
+    print(f"Price range: {args.range_pct}% from current price")
     
-    # Clean up any existing orders first
-    print("Cleaning up existing orders...")
+    # Check current price
+    ticker = client.get_ticker(args.symbol)
+    current_price = ticker["last"]
+    print(f"Current price: {current_price}")
+    
+    # Clean up any existing orders
+    print("Cancelling any existing orders...")
     client.cancel_all_orders(args.symbol)
-    time.sleep(2)
     
-    # Create and start the grid bot
+    # Create and start the bot
     bot = DirectionalGridBot(
         exchange=client,
         symbol=args.symbol,
@@ -66,12 +71,11 @@ try:
     # Add this property for exit behavior
     bot.close_positions_on_exit = args.close_on_exit
     
-    # Set timeout for the bot
-    end_time = time.time() + args.duration
+    # Start the bot
+    bot.start()
     
-    # Start the process
-    bot.initialize_grid()
-    bot.print_summary()
+    # Run for specified duration
+    end_time = time.time() + args.duration
     
     print(f"\nGrid bot running. Will stop in {args.duration} seconds...")
     print("Press Ctrl+C to stop earlier")
