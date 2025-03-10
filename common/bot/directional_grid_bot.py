@@ -63,12 +63,16 @@ class DirectionalGridBot:
         self._calculate_grid_levels()
         
         # Calculate order size (per grid)
-        self._calculate_order_size()
+        self.order_size = self._calculate_order_size()
+        
+        # Calculate initial position size (if any)
+        self.initial_position_size = float(self.order_size) * (self.initial_position_pct / 100.0)
+        logger.info(f"Initial position size: {self.initial_position_size} ({self.initial_position_pct}% of capital)")
         
         logger.info(f"Initialized {direction}biased grid bot for {symbol}")
         logger.info(f"Total capital: {self.total_capital} using {self.leverage}x leverage")
         logger.info(f"Grid range: {self.lower_price} to {self.upper_price} with {self.grid_count} levels")
-        logger.info(f"Order size per grid: {self.order_size} ({self.total_capital / self.grid_count} divided by price)")
+        logger.info(f"Order size per grid: {self.order_size} ({self.total_capital/self.grid_count} divided by price)")
     
     def _calculate_grid_levels(self):
         """Calculate grid price levels based on direction."""
@@ -96,30 +100,32 @@ class DirectionalGridBot:
         logger.info(f"Grid levels: {self.grid_levels}")
     
     def _calculate_order_size(self):
-        """Calculate the size of each grid order."""
-        # Calculate the per-grid capital allocation
+        """Calculate the order size based on capital allocation."""
+        # Calculate capital per grid level
         capital_per_grid = self.total_capital / self.grid_count
         
-        # Convert capital to base currency amount using average price
+        # For inverse contracts like BTCUSD, order size is in contracts
+        # 1 contract = 1 USD / price (for BTCUSD)
         avg_price = (self.lower_price + self.upper_price) / 2
-        base_amount = capital_per_grid / avg_price
         
-        # Apply leverage if using futures
-        if self.leverage > 1:
-            base_amount = base_amount * self.leverage
-        
-        # Adjust for precision requirements
-        self.order_size = adjust_quantity(base_amount, self.symbol_info)
-        
-        logger.info(f"Capital per grid: {capital_per_grid} -> Order size: {self.order_size}")
-        
-        # Calculate initial position size
-        if self.initial_position_pct > 0:
-            self.initial_position_size = base_amount * (self.initial_position_pct / 100.0)
-            self.initial_position_size = adjust_quantity(self.initial_position_size, self.symbol_info)
-            logger.info(f"Initial position size: {self.initial_position_size} ({self.initial_position_pct}% of capital)")
+        # For BTCUSD inverse perpetual, we need to convert USD to contract quantity
+        # The contract value is 1 USD, so the number of contracts is simply the capital amount
+        if 'USD' in self.symbol and self.symbol.startswith('BTC'):
+            # For inverse contracts, order size is directly in USD
+            order_size = capital_per_grid
+            logger.info(f"Inverse contract detected. Using {order_size} contracts per grid.")
         else:
-            self.initial_position_size = 0
+            # For linear contracts, we need to convert to the base currency
+            order_size = capital_per_grid / avg_price
+        
+        # Apply leverage
+        order_size = order_size * self.leverage
+        
+        # Adjust order size for exchange precision requirements
+        order_size = adjust_quantity(order_size, self.symbol_info)
+        
+        logger.info(f"Capital per grid: {capital_per_grid} -> Order size: {order_size}")
+        return float(order_size)  # Ensure it's a float, not a string
     
     def _get_current_price(self):
         """Get current market price."""
@@ -202,26 +208,31 @@ class DirectionalGridBot:
         return orders_placed > 0
     
     def monitor_and_update(self):
-        """Monitor orders and update grid as needed."""
-        logger.info("Checking order status...")
-        
-        # Get current open orders
-        open_orders = self.exchange.get_open_orders(self.symbol)
-        open_order_ids = set(order["id"] for order in open_orders if "id" in order)
-        
-        # Check for filled orders
-        filled_orders = []
-        for order_id, order_info in list(self.active_positions.items()):
-            if order_id not in open_order_ids:
-                # Order not in open orders, assume it was filled
-                logger.info(f"Order {order_id} was likely filled")
-                filled_orders.append(order_info)
-                del self.active_positions[order_id]
-        
-        # Handle filled orders
-        for filled_order in filled_orders:
-            self.filled_orders.append(filled_order)
-            self._handle_fill_directional(filled_order)
+        """Monitor and update the grid positions."""
+        try:
+            # Get all open orders
+            open_orders = self.exchange.get_open_orders(self.symbol)
+            
+            # Update order status
+            for order_id, order_data in list(self.active_positions.items()):
+                # Check if the order is still open
+                found = False
+                for open_order in open_orders or []:
+                    if str(open_order.get('id', '')) == str(order_id):
+                        found = True
+                        break
+                
+                # If not found, assume it's filled
+                if not found and order_id not in self.filled_order_ids:
+                    logger.info(f"Order {order_id} appears to be filled, creating new order")
+                    self._handle_filled_order(order_id, order_data)
+            
+            # Check if we need to create more orders to maintain the grid
+            if len(self.active_positions) < self.grid_count:
+                self._create_missing_orders()
+            
+        except Exception as e:
+            logger.error(f"Error monitoring orders: {str(e)}")
     
     def _handle_fill_directional(self, filled_order):
         """Handle a filled order in directional grid strategy."""
@@ -368,4 +379,39 @@ class DirectionalGridBot:
         if self.active_positions:
             logger.info("\nActive Positions:")
             for order_id, order in self.active_positions.items():
-                logger.info(f"  {order['side']} {order['amount']} @ {order['price']} (ID: {order_id})") 
+                logger.info(f"  {order['side']} {order['amount']} @ {order['price']} (ID: {order_id})")
+
+    def _initialize(self):
+        """Initialize the grid bot with price ranges and order sizes."""
+        # Get current price
+        ticker = self.exchange.get_ticker(self.symbol)
+        self.current_price = float(ticker["last"])
+        logger.info(f"Current price: {self.current_price}")
+        
+        # Set leverage
+        leverage_result = self.exchange.set_leverage(self.symbol, self.leverage)
+        logger.info(f"Set leverage to {self.leverage}x: {leverage_result}")
+        # Continue even if leverage setting fails - it might already be set correctly
+        
+        # Calculate grid levels
+        range_amount = self.current_price * (self.range_percentage / 100.0)
+        half_range = range_amount / 2.0
+        
+        self.lower_price = self.current_price - half_range
+        self.upper_price = self.current_price + half_range
+        
+        # Generate grid levels
+        self.price_levels = self._generate_price_levels()
+        logger.info(f"Grid levels: {self.price_levels}")
+        
+        # Calculate order size
+        self.order_size = self._calculate_order_size()
+        
+        # Calculate initial position size (if any)
+        self.initial_position_size = float(self.order_size) * (self.initial_position_pct / 100.0)
+        logger.info(f"Initial position size: {self.initial_position_size} ({self.initial_position_pct}% of capital)")
+        
+        logger.info(f"Initialized {self.direction}biased grid bot for {self.symbol}")
+        logger.info(f"Total capital: {self.total_capital} using {self.leverage}x leverage")
+        logger.info(f"Grid range: {self.lower_price} to {self.upper_price} with {self.grid_count} levels")
+        logger.info(f"Order size per grid: {self.order_size} ({self.total_capital/self.grid_count} divided by price)") 

@@ -36,8 +36,15 @@ class BybitClient(BaseExchangeClient):
         # Configure for unified account
         self.account_type = "UNIFIED"  # Unified account
         
-        # Sync time with server
-        self._sync_time()
+        # Debug log - Show partial API key for debugging
+        masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
+        logger.info(f"Initializing Bybit client with API key: {masked_key}")
+        
+        # Check server time synchronization
+        try:
+            self._check_time_sync()
+        except Exception as e:
+            logger.warning(f"Time sync check failed: {str(e)}")
         
         # Initialize connection by fetching available symbols for both linear and inverse futures
         self.available_pairs = {}
@@ -58,6 +65,23 @@ class BybitClient(BaseExchangeClient):
                 self.available_pairs[category] = []
         
         logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
+    
+    def _check_time_sync(self):
+        """Check if local time is synchronized with server time."""
+        try:
+            response = self._get_public("/v5/market/time")
+            if response and "result" in response and "timeSecond" in response["result"]:
+                server_time = int(response["result"]["timeSecond"]) * 1000
+                local_time = int(time.time() * 1000)
+                diff = abs(local_time - server_time)
+                
+                if diff > 10000:  # If difference is more than 10 seconds
+                    logger.warning(f"Time difference between local and server: {diff}ms")
+                    # We'll continue anyway, as the timestamp will be generated at request time
+                return diff
+        except Exception as e:
+            logger.error(f"Error checking time sync: {str(e)}")
+            return None
     
     def _sync_time(self):
         """Synchronize local time with Bybit server time."""
