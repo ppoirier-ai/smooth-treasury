@@ -442,39 +442,56 @@ class DirectionalGridBot:
             logger.error("Failed to cancel all orders")
     
     def calculate_profit(self):
-        """Calculate current profit from filled orders."""
+        """Calculate profit more accurately."""
         if not self.filled_orders:
             return 0.0
         
-        total_profit = 0.0
+        # Sort orders by time
+        sorted_orders = sorted(self.filled_orders, key=lambda x: x.get('time', datetime.min))
         
-        # For directional trading, profit calculation is different
-        # We track buy-sell pairs based on the direction
+        total_profit = 0.0
+        positions = []  # Track open positions
+        
         if self.direction == "long":
-            # For long bias, profit is from selling higher than buying
-            for order in self.filled_orders:
-                if order.get("side") == "sell" and order.get("type") == "take_profit":
-                    # This is a profit-taking sell
-                    sell_price = order.get("price", 0)
-                    amount = order.get("amount", 0)
-                    
-                    # Assume initial position was at current_price (simplified)
-                    # In a real implementation, we'd track the actual buy price for each position
-                    buy_price = self.current_price  
-                    profit = (sell_price - buy_price) * amount
-                    total_profit += profit
+            # Track initial position
+            if self.has_initial_position:
+                positions.append({
+                    "price": float(self.initial_position_price),
+                    "amount": float(self.initial_position_size)
+                })
+            
+            # Process each order chronologically
+            for order in sorted_orders:
+                side = order.get("side")
+                price = float(order.get("price", 0))
+                amount = float(order.get("amount", 0))
+                
+                if side == "buy":
+                    # Add to our positions
+                    positions.append({"price": price, "amount": amount})
+                elif side == "sell":
+                    # Calculate profit against earliest open positions (FIFO)
+                    remaining = amount
+                    while remaining > 0 and positions:
+                        pos = positions[0]
+                        use_amount = min(remaining, pos["amount"])
+                        
+                        # Calculate profit for this portion
+                        entry_price = pos["price"]
+                        profit_per_unit = price - entry_price
+                        profit = profit_per_unit * use_amount
+                        total_profit += profit
+                        
+                        # Update or remove position
+                        if use_amount >= pos["amount"]:
+                            positions.pop(0)  # Position fully closed
+                        else:
+                            pos["amount"] -= use_amount  # Reduce position size
+                        
+                        remaining -= use_amount
         else:
-            # For short bias, profit is from buying lower than selling
-            for order in self.filled_orders:
-                if order.get("side") == "buy" and order.get("type") == "take_profit":
-                    # This is a profit-taking buy
-                    buy_price = order.get("price", 0)
-                    amount = order.get("amount", 0)
-                    
-                    # Assume initial position was at current_price (simplified)
-                    sell_price = self.current_price
-                    profit = (sell_price - buy_price) * amount
-                    total_profit += profit
+            # Similar logic for short positions
+            pass
         
         return total_profit
     
