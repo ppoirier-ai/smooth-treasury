@@ -605,4 +605,43 @@ class BybitClient(BaseExchangeClient):
                 return None
         except Exception as e:
             logger.error(f"Failed to create market order: {str(e)}")
-            return None 
+            return None
+    
+    def set_position_mode(self, mode, symbol=None):
+        """Set position mode for the account or specific symbol.
+        
+        Args:
+            mode (str): 'one_way' or 'hedge'
+            symbol (str, optional): Symbol to set mode for
+        """
+        try:
+            mode_param = 0 if mode == 'one_way' else 3  # Bybit uses 0 for one-way, 3 for hedge
+            
+            params = {
+                "category": self.get_market_type(symbol) if symbol else "linear",
+                "mode": mode_param
+            }
+            
+            if symbol:
+                params["symbol"] = symbol
+            
+            response = self._post_private("/v5/position/switch-mode", params=params)
+            data = response.json()
+            
+            if data.get("retCode") == 0:
+                logger.info(f"Successfully set position mode to {mode}")
+                return True
+            else:
+                logger.warning(f"Failed to set position mode: {data.get('retMsg')}")
+                return False
+        
+        except Exception as e:
+            logger.error(f"Error setting position mode: {str(e)}")
+            return False
+    
+    def get_market_type(self, symbol):
+        """Determine market type for a symbol (linear, inverse, etc)."""
+        if symbol and "USD" in symbol and not symbol.endswith("USDT"):
+            return "inverse"
+        else:
+            return "linear" 
