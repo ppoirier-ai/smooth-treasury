@@ -170,8 +170,9 @@ class DirectionalGridBot:
             
             # For inverse contracts like BTCUSD, size is in contracts (1 contract = 1 USD)
             if self.symbol_info.get("contract_type") == "inverse":
-                # No need to divide by price for inverse contracts
-                position_size = position_size
+                # For inverse contracts, we need to adjust the size since it's in contracts
+                # For a reasonable position size, let's use a much smaller amount for testing
+                position_size = min(position_size / 100000, 12)  # Limit to 12 contracts for testing
             else:
                 # For linear contracts, convert to the base currency
                 position_size = position_size / self.current_price
@@ -200,14 +201,6 @@ class DirectionalGridBot:
         """Place grid orders based on the calculated levels."""
         logger.info("Placing grid orders...")
         
-        # For long-biased bots:
-        # - Place buy orders below current price for accumulation
-        # - Place sell orders above current price for profit-taking
-        
-        # For short-biased bots:
-        # - Place sell orders above current price for accumulation
-        # - Place buy orders below current price for profit-taking
-        
         orders_placed = 0
         
         for price in self.grid_levels:
@@ -222,32 +215,44 @@ class DirectionalGridBot:
                 
                 logger.info(f"Placing {side} order at {price} for {self.order_size}")
                 
-                # Use the exchange client's create_limit_order method
-                # Check if reduce_only is supported
-                params = {}
-                if hasattr(self.exchange, 'supports_reduce_only') and self.exchange.supports_reduce_only:
-                    params['reduce_only'] = (order_type == "take_profit")
+                # Check if create_limit_order exists, otherwise fall back to create_order
+                if hasattr(self.exchange, 'create_limit_order'):
+                    # Use the exchange client's create_limit_order method
+                    # Check if reduce_only is supported
+                    params = {}
+                    if order_type == "take_profit":
+                        params['reduce_only'] = True
+                        
+                    # Place the limit order
+                    order_id = self.exchange.create_limit_order(
+                        symbol=self.symbol,
+                        side=side,
+                        amount=self.order_size,
+                        price=price,
+                        params=params
+                    )
+                else:
+                    # Fallback to create_order if it exists
+                    order_id = self.exchange.create_order(
+                        symbol=self.symbol,
+                        type="limit",
+                        side=side,
+                        amount=self.order_size,
+                        price=price
+                    )
+                
+                if order_id:
+                    # Record the order in our tracking dict
+                    self.active_positions[order_id] = {
+                        "price": price,
+                        "side": side,
+                        "amount": self.order_size,
+                        "type": order_type,
+                        "status": "open"
+                    }
                     
-                # Place the limit order
-                order_id = self.exchange.create_limit_order(
-                    symbol=self.symbol,
-                    side=side,
-                    amount=self.order_size,
-                    price=price,
-                    params=params
-                )
-                
-                # Record the order in our tracking dict
-                self.active_positions[order_id] = {
-                    "price": price,
-                    "side": side,
-                    "amount": self.order_size,
-                    "type": order_type,
-                    "status": "open"
-                }
-                
-                logger.info(f"Order placed: {order_id}")
-                orders_placed += 1
+                    logger.info(f"Order placed: {order_id}")
+                    orders_placed += 1
                 
             except Exception as e:
                 logger.error(f"Failed to place {side} order at {price}: {str(e)}")

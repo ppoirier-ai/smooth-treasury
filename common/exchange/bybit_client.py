@@ -625,14 +625,14 @@ class BybitClient(BaseExchangeClient):
             if symbol:
                 params["symbol"] = symbol
             
-            response = self._post_private("/v5/position/switch-mode", params=params)
-            data = response.json()
+            response = self._post_private("/v5/position/switch-mode", params)
             
-            if data.get("retCode") == 0:
+            if response and response.get("retCode") == 0:
                 logger.info(f"Successfully set position mode to {mode}")
                 return True
             else:
-                logger.warning(f"Failed to set position mode: {data.get('retMsg')}")
+                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                logger.warning(f"Failed to set position mode: {error_msg}")
                 return False
         
         except Exception as e:
@@ -644,4 +644,52 @@ class BybitClient(BaseExchangeClient):
         if symbol and "USD" in symbol and not symbol.endswith("USDT"):
             return "inverse"
         else:
-            return "linear" 
+            return "linear"
+    
+    def create_limit_order(self, symbol: str, side: str, amount: float, price: float, params=None) -> Optional[str]:
+        """Create a new limit order.
+        
+        Args:
+            symbol: Trading pair symbol
+            side: Order side ('buy' or 'sell')
+            amount: Order amount
+            price: Order price
+            params: Additional parameters
+            
+        Returns:
+            Order ID if successful, None otherwise
+        """
+        try:
+            normalized_symbol = self._normalize_symbol(symbol)
+            category = self._detect_symbol_category(symbol)
+            
+            # Convert side to proper format for Bybit
+            bybit_side = side.capitalize()  # Convert 'buy' -> 'Buy', 'sell' -> 'Sell'
+            
+            # Create order data
+            data = {
+                "category": category,
+                "symbol": normalized_symbol,
+                "side": bybit_side,
+                "orderType": "Limit",
+                "qty": str(amount),
+                "price": str(price)
+            }
+            
+            # Add any additional parameters
+            if params:
+                if params.get('reduce_only'):
+                    data["reduceOnly"] = "true"
+                
+            response = self._post_private("/v5/order/create", data)
+            
+            if response and "result" in response and "orderId" in response["result"]:
+                logger.info(f"Limit order placed: {response['result']['orderId']}")
+                return response["result"]["orderId"]
+            else:
+                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                logger.error(f"Failed to create limit order: {error_msg}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to create limit order: {str(e)}")
+            return None 
