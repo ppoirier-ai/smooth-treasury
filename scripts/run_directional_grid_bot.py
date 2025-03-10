@@ -23,18 +23,22 @@ parser.add_argument('--symbol', type=str, default='BTC/USDT', help='Trading pair
 parser.add_argument('--capital', type=float, default=100, help='Total capital to use in quote currency (e.g., USDT)')
 parser.add_argument('--grid-count', type=int, default=5, help='Number of grid levels')
 parser.add_argument('--range-pct', type=float, default=3.0, help='Price range percentage')
-parser.add_argument('--duration', type=int, default=300, help='Bot run duration in seconds')
-parser.add_argument('--testnet', action='store_true', help='Use testnet instead of mainnet')
-parser.add_argument('--direction', choices=['long', 'short'], default='long', help='Trading direction')
+parser.add_argument('--duration', type=int, default=3600, help='Duration to run in seconds')
+parser.add_argument('--testnet', action='store_true', help='Use testnet')
+parser.add_argument('--direction', type=str, choices=['long', 'short'], default='long',
+                    help='Trading direction (long or short)')
 parser.add_argument('--leverage', type=int, default=2, help='Leverage to use (1 = no leverage)')
 parser.add_argument('--initial-position', type=float, default=50.0, 
-                   help='Percentage of capital to use for initial position (0-100)')
+                    help='Percentage of capital to use for initial position (0-100)')
 parser.add_argument('--close-on-exit', action='store_true', 
                     help='Close all positions when the bot exits')
-args = parser.parse_args()
+parser.add_argument('--grid-bias', type=float, default=50.0,
+                    help='Grid bias (0-100, where 50 is centered, higher values mean more orders above current price)')
 
 # Main functionality
 try:
+    args = parser.parse_args()
+    
     # Initialize exchange client
     client = BybitClient(
         api_key="bcRYdfdO4Z7INAFPcE",
@@ -42,9 +46,10 @@ try:
         testnet=True if args.testnet else False
     )
     
-    print(f"Starting directional grid bot for {args.symbol}...")
+    print(f"Starting true directional grid bot for {args.symbol}...")
     print(f"Direction: {args.direction} bias with {args.leverage}x leverage")
-    print(f"Total capital: {args.capital} USDT to be distributed across {args.grid_count} grid levels")
+    print(f"Strategy: Initial {args.initial_position}% position with grid trading to optimize returns")
+    print(f"Total capital: {args.capital} USDT across {args.grid_count} grid levels")
     print(f"Price range: {args.range_pct}% from current price")
     
     # Check current price
@@ -56,7 +61,7 @@ try:
     print("Cancelling any existing orders...")
     client.cancel_all_orders(args.symbol)
     
-    # Create and start the bot
+    # Create and start the grid bot
     bot = DirectionalGridBot(
         exchange=client,
         symbol=args.symbol,
@@ -68,13 +73,12 @@ try:
         initial_position_pct=args.initial_position
     )
     
-    # Add this property for exit behavior
-    bot.close_positions_on_exit = args.close_on_exit
-    
     # Start the bot
-    bot.start()
+    if not bot.start():
+        print("Failed to start bot. Exiting.")
+        sys.exit(1)
     
-    # Run for specified duration
+    # Run for the specified duration
     end_time = time.time() + args.duration
     
     print(f"\nGrid bot running. Will stop in {args.duration} seconds...")
