@@ -152,7 +152,7 @@ class DirectionalGridBot:
             return True
         
         try:
-            # Set position mode first if needed
+            # Set position mode if supported
             if hasattr(self.exchange, 'set_position_mode'):
                 try:
                     mode = 'one_way' if self.direction == 'long' else 'hedge'
@@ -165,33 +165,39 @@ class DirectionalGridBot:
             # For short-biased bots, place an initial short position
             side = "buy" if self.direction == "long" else "sell"
             
-            # Calculate position size - be careful with inverse contracts
+            # Calculate position size based on capital and leverage
             position_size = self.total_capital * (self.initial_position_pct / 100) * self.leverage
             
-            # For inverse contracts like BTCUSD, size is in contracts (1 contract = 1 USD)
+            # For inverse contracts like BTCUSD, we need special handling
             if self.symbol_info.get("contract_type") == "inverse":
-                # For inverse contracts, we need to adjust the size since it's in contracts
-                # For a reasonable position size, let's use a much smaller amount for testing
-                position_size = min(position_size / 100000, 12)  # Limit to 12 contracts for testing
+                # For inverse contracts, position size is already in USD contracts
+                # No need to artificially limit it - remove the min() function
+                position_size = position_size  # Full position size
             else:
-                # For linear contracts, convert to the base currency
+                # For linear contracts, convert to base currency
                 position_size = position_size / self.current_price
             
-            # Adjust quantity to exchange requirements
+            # Adjust to exchange requirements
             position_size = adjust_quantity(position_size, self.symbol_info)
             
             logger.info(f"Placing initial {self.direction} position: {side} {position_size} contracts at market")
             
-            # Use the existing create_market_order without position_idx
+            # Place the market order
             order_id = self.exchange.create_market_order(
                 symbol=self.symbol,
                 side=side,
                 amount=position_size
             )
             
-            self.initial_position_size = float(position_size)
-            logger.info(f"Initial position placed: {order_id}")
-            return True
+            if order_id:
+                self.initial_position_size = float(position_size)
+                self.initial_position_price = self.current_price
+                self.has_initial_position = True
+                logger.info(f"Initial position placed: {order_id}")
+                return True
+            else:
+                logger.error("Failed to place initial position")
+                return False
             
         except Exception as e:
             logger.error(f"Failed to place initial position: {str(e)}")
@@ -213,12 +219,15 @@ class DirectionalGridBot:
                     side = "sell" if price > self.current_price else "buy"
                     order_type = "re_entry" if side == "sell" else "take_profit"
                 
-                logger.info(f"Placing {side} order at {price} for {self.order_size}")
+                # Calculate appropriate order size - for testing, use a reasonable size
+                # In a real system, this would be based on risk management
+                order_size = self.order_size
                 
-                # Check if create_limit_order exists, otherwise fall back to create_order
+                logger.info(f"Placing {side} order at {price} for {order_size}")
+                
+                # Create the limit order
                 if hasattr(self.exchange, 'create_limit_order'):
-                    # Use the exchange client's create_limit_order method
-                    # Check if reduce_only is supported
+                    # Check if reduce_only should be applied
                     params = {}
                     if order_type == "take_profit":
                         params['reduce_only'] = True
@@ -227,26 +236,26 @@ class DirectionalGridBot:
                     order_id = self.exchange.create_limit_order(
                         symbol=self.symbol,
                         side=side,
-                        amount=self.order_size,
+                        amount=order_size,
                         price=price,
                         params=params
                     )
                 else:
-                    # Fallback to create_order if it exists
+                    # Fallback method
                     order_id = self.exchange.create_order(
                         symbol=self.symbol,
                         type="limit",
                         side=side,
-                        amount=self.order_size,
+                        amount=order_size,
                         price=price
                     )
                 
                 if order_id:
-                    # Record the order in our tracking dict
+                    # Track the order
                     self.active_positions[order_id] = {
-                        "price": price,
+                        "price": float(price),
                         "side": side,
-                        "amount": self.order_size,
+                        "amount": float(order_size),
                         "type": order_type,
                         "status": "open"
                     }
@@ -291,17 +300,17 @@ class DirectionalGridBot:
             logger.error(f"Error monitoring orders: {str(e)}")
     
     def _handle_filled_order(self, order_id, order_data):
-        """Handle a filled order - core logic of the directional grid trading."""
+        """Handle a filled order."""
         try:
-            # extract order details
+            # Extract order details
             side = order_data.get("side")
-            price = order_data.get("price")
-            amount = order_data.get("amount")
+            price = float(order_data.get("price"))
+            amount = float(order_data.get("amount"))
             order_type = order_data.get("type")
             
             logger.info(f"Handling filled {side} order at price {price}")
             
-            # record the filled order
+            # Record the filled order
             self.filled_orders.append({
                 "id": order_id,
                 "side": side,
@@ -313,88 +322,70 @@ class DirectionalGridBot:
             
             self.filled_order_ids.add(order_id)
             
-            # remove from active positions
+            # Remove from active positions
             if order_id in self.active_positions:
                 del self.active_positions[order_id]
             
-            # For inverse contracts like BTCUSD, special handling is needed
-            is_inverse = self.symbol_info.get("contract_type") == "inverse"
-            
-            # get current price
-            current_price = self._get_current_price()
-            
-            # place new orders based on direction and side
+            # Place new orders to maintain the grid
             if self.direction == "long":
-                if side == "sell":  # sell order filled - profit taken
-                    # Place a new buy order at a lower price
-                    # For inverse contracts, quantity remains fixed (in contracts)
-                    new_price = price - (2 * self.grid_step)
-                    new_price = adjust_price(new_price, self.symbol_info)
-                    
-                    logger.info(f"Placing new buy order at {new_price} for {amount}")
-                    
-                    # Place the order
-                    try:
-                        order = self.exchange.create_limit_order(
-                            symbol=self.symbol,
-                            side="buy",
-                            amount=amount,
-                            price=new_price
-                        )
-                        
-                        if order:
-                            logger.info(f"New order placed: {order}")
-                            self.active_positions[order] = {
-                                "price": new_price,
-                                "side": "buy",
-                                "amount": amount,
-                                "type": "re_entry",
-                                "status": "open"
-                            }
-                        else:
-                            logger.error(f"Failed to place buy order at {new_price}")
-                            
-                    except Exception as e:
-                        logger.error(f"Error placing buy order: {str(e)}")
-                    
-                elif side == "buy":  # buy order filled - position replenished
-                    # Place a new sell order at a higher price
-                    new_price = price + (2 * self.grid_step)
-                    new_price = adjust_price(new_price, self.symbol_info)
-                    
-                    logger.info(f"Placing new sell order at {new_price} for {amount}")
-                    
-                    # Place the order 
-                    try:
-                        order = self.exchange.create_limit_order(
-                            symbol=self.symbol,
-                            side="sell",
-                            amount=amount,
-                            price=new_price
-                        )
-                        
-                        if order:
-                            logger.info(f"New order placed: {order}")
-                            self.active_positions[order] = {
-                                "price": new_price,
-                                "side": "sell",
-                                "amount": amount,
-                                "type": "take_profit",
-                                "status": "open"
-                            }
-                        else:
-                            logger.error(f"Failed to place sell order at {new_price}")
-                            
-                    except Exception as e:
-                        logger.error(f"Error placing sell order: {str(e)}")
-            
+                if side == "sell":  # Sell order filled (profit taken)
+                    # Place a new sell order at the same price level
+                    self._place_new_order("sell", price, amount, "take_profit")
+                elif side == "buy":  # Buy order filled (re-entry)
+                    # Place a new buy order at the same price level
+                    self._place_new_order("buy", price, amount, "re_entry")
             else:  # short direction
-                # Similar logic for short bias
-                # Omitted for brevity - similar to long but with reversed order types
-                pass
-                
+                if side == "buy":  # Buy order filled (profit taken)
+                    # Place a new buy order at the same price level
+                    self._place_new_order("buy", price, amount, "take_profit")
+                elif side == "sell":  # Sell order filled (re-entry)
+                    # Place a new sell order at the same price level
+                    self._place_new_order("sell", price, amount, "re_entry")
+        
         except Exception as e:
             logger.error(f"Error handling filled order: {str(e)}")
+
+    def _place_new_order(self, side, price, amount, order_type):
+        """Place a new order after a fill."""
+        try:
+            logger.info(f"Placing new {side} order at {price} for {amount}")
+            
+            # Use the same price and amount as the filled order
+            params = {}
+            if order_type == "take_profit":
+                params['reduce_only'] = True
+            
+            if hasattr(self.exchange, 'create_limit_order'):
+                order_id = self.exchange.create_limit_order(
+                    symbol=self.symbol,
+                    side=side,
+                    amount=amount,
+                    price=price,
+                    params=params
+                )
+            else:
+                order_id = self.exchange.create_order(
+                    symbol=self.symbol,
+                    type="limit",
+                    side=side,
+                    amount=amount,
+                    price=price
+                )
+            
+            if order_id:
+                logger.info(f"New order placed: {order_id}")
+                self.active_positions[order_id] = {
+                    "price": float(price),
+                    "side": side,
+                    "amount": float(amount),
+                    "type": order_type,
+                    "status": "open"
+                }
+            else:
+                logger.error(f"Failed to place {side} order at {price}")
+            
+        except Exception as e:
+            logger.error(f"Error placing {side} order: {str(e)}")
     
     def start(self):
         """Start the grid trading bot."""
