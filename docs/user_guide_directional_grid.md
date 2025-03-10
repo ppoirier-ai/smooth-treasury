@@ -39,31 +39,29 @@ python scripts/run_directional_grid_bot.py --symbol "BTCUSD" --capital 50000 --g
 Let's say you run a long-biased grid bot with these parameters:
 - Symbol: BTCUSD
 - Capital: $50,000
-- Grid Count: 5
+- Grid Count: 10 (5 above, 5 below current price)
 - Range: 1%
 - Current BTC Price: $100,000
 
 **Initial Setup:**
 1. Bot places an initial long position of $50,000 (at 100% initial position)
 2. Bot places 5 sell orders at these prices:
-   - $100,200 (sell 20% of position)
-   - $100,400 (sell 20% of position)
-   - $100,600 (sell 20% of position)
-   - $100,800 (sell 20% of position)
-   - $101,000 (sell 20% of position)
+   - $100,200 (sell 10% of position)
+   - $100,400 (sell 10% of position)
+   - $100,600 (sell 10% of position)
+   - $100,800 (sell 10% of position)
+   - $101,000 (sell 10% of position)
+3. Bot places 5 buy orders at these prices:
+   - $99,800 (buy additional 10% of position)
+   - $99,600 (buy additional 10% of position)
+   - $99,400 (buy additional 10% of position)
+   - $99,200 (buy additional 10% of position)
+   - $99,000 (buy additional 10% of position)
 
-**Scenario 1: Price rises to $100,200**
-1. First sell order fills, capturing profit
-2. Bot places a new buy order at $99,800 to replenish position
-
-**Scenario 2: Price then falls to $99,800**
-1. Buy order fills, replenishing the position
-2. Bot places a new sell order at $100,200
-
-**Ongoing Cycle:**
-- As sell orders fill (profit taking), new buy orders are placed at lower levels
-- As buy orders fill (position replenishment), new sell orders are placed at higher levels
-- The bot maintains a net long position throughout, buying low and selling high
+**When orders fill:**
+- When a sell order fills (profit taking), a new sell order is placed at that price level after a buy order fills
+- When a buy order fills (accumulation), a new buy order is placed at that price level after a sell order fills
+- The grid is continuously maintained with orders on both sides
 
 ### Short-Biased Example
 

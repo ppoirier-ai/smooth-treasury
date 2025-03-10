@@ -64,17 +64,19 @@ The Directional Grid Bot is an advanced trading strategy that maintains a direct
 
 1. Places initial long position (e.g., 100% of allocated capital)
 2. Places sell orders at intervals above the current price (take-profit orders)
-3. When a sell order fills, places a new buy order at a lower price level
-4. When that buy order fills, places a new sell order at a higher level
-5. Continuously cycles, maintaining net long exposure while buying low and selling high
+3. Places buy orders at intervals below the current price (re-entry/accumulation orders)
+4. When a sell order fills, places a new sell order at that price level once a buy order fills
+5. When a buy order fills, places a new buy order at that price level once a sell order fills
+6. Continuously cycles, maintaining net long exposure while buying low and selling high
 
 ### Short-Biased Grid Bot
 
 1. Places initial short position (e.g., 100% of allocated capital)
 2. Places buy orders at intervals below the current price (take-profit orders)
-3. When a buy order fills, places a new sell order at a higher price level
-4. When that sell order fills, places a new buy order at a lower level
-5. Continuously cycles, maintaining net short exposure while selling high and buying low
+3. Places sell orders at intervals above the current price (re-entry/hedge orders)
+4. When a buy order fills, places a new buy order at that price level once a sell order fills
+5. When a sell order fills, places a new sell order at that price level once a buy order fills
+6. Continuously cycles, maintaining net short exposure while selling high and buying low
 
 ## Metrics and Monitoring
 
