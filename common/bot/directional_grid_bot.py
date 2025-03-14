@@ -450,76 +450,64 @@ class DirectionalGridBot:
                 logger.warning(f"Order size {self.order_size} seems too large for {self.symbol}, limiting to 100")
                 self.order_size = 100  # A more reasonable size for testing
             
-            # Place initial position if configured
-            if self.initial_position_pct > 0:
-                logger.info("Placing initial position...")
-                if not self.place_initial_position():
-                    logger.error("Failed to place initial position. Stopping bot.")
-                    self.running = False
-                    return False
-                logger.info("Initial position placed successfully")
+            # DEBUG: Show we're at the order placement stage 
+            logger.info("=== ATTEMPTING TO PLACE ORDERS NOW ===")
             
-            # CRITICAL FIX: Place grid orders at startup
-            logger.info("Placing grid orders...")
+            # Get current price for reference
             current_price = self._get_current_price()
-            logger.info(f"Current price: {current_price} - Placing orders above and below")
+            logger.info(f"Current price for order placement: {current_price}")
             
             # Place buy orders below current price
-            orders_placed = 0
+            buy_orders_placed = 0
             for price in self.grid_levels:
                 if price >= current_price:
                     continue  # Skip prices above current price for buy orders
                     
-                logger.info(f"Placing BUY order at {price} for {self.order_size}")
+                logger.info(f"ATTEMPTING BUY ORDER at {price} for {self.order_size}")
                 
-                # Create buy order
-                order_id = self.exchange.create_limit_order(
+                # Create buy order with direct API call
+                result = self.exchange._create_order(
                     symbol=self.symbol,
                     side="buy",
-                    amount=self.order_size,
+                    order_type="Limit",
+                    qty=self.order_size,
                     price=price
                 )
                 
-                if order_id:
-                    logger.info(f"BUY order placed successfully: {order_id}")
-                    self.active_positions[order_id] = {
-                        "price": float(price),
-                        "side": "buy",
-                        "amount": float(self.order_size),
-                        "status": "open"
-                    }
-                    orders_placed += 1
+                logger.info(f"BUY ORDER RESULT: {result}")
+                
+                if result:
+                    logger.info(f"BUY ORDER SUCCESS at {price}")
+                    buy_orders_placed += 1
             
             # Place sell orders above current price
+            sell_orders_placed = 0
             for price in self.grid_levels:
                 if price <= current_price:
                     continue  # Skip prices below current price for sell orders
                     
-                logger.info(f"Placing SELL order at {price} for {self.order_size}")
+                logger.info(f"ATTEMPTING SELL ORDER at {price} for {self.order_size}")
                 
-                # Create sell order
-                order_id = self.exchange.create_limit_order(
+                # Create sell order with direct API call
+                result = self.exchange._create_order(
                     symbol=self.symbol,
                     side="sell",
-                    amount=self.order_size,
+                    order_type="Limit",
+                    qty=self.order_size,
                     price=price
                 )
                 
-                if order_id:
-                    logger.info(f"SELL order placed successfully: {order_id}")
-                    self.active_positions[order_id] = {
-                        "price": float(price),
-                        "side": "sell",
-                        "amount": float(self.order_size),
-                        "status": "open"
-                    }
-                    orders_placed += 1
+                logger.info(f"SELL ORDER RESULT: {result}")
+                
+                if result:
+                    logger.info(f"SELL ORDER SUCCESS at {price}")
+                    sell_orders_placed += 1
+                
+            logger.info(f"ORDER PLACEMENT SUMMARY: {buy_orders_placed} buy orders, {sell_orders_placed} sell orders")
             
-            logger.info(f"Placed {orders_placed} grid orders")
-            
-            # Check open orders to verify
+            # Verify by getting open orders
             open_orders = self.exchange.get_open_orders(self.symbol)
-            logger.info(f"Confirmed open orders: {len(open_orders)}")
+            logger.info(f"VERIFICATION: Found {len(open_orders)} open orders")
             
             # Print initial summary
             self.print_summary()

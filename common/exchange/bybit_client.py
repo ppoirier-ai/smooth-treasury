@@ -666,55 +666,20 @@ class BybitClient(BaseExchangeClient):
         else:
             return "linear"
     
-    def create_limit_order(self, symbol: str, side: str, amount: float, price: float, params=None) -> Optional[str]:
-        """Create a new limit order.
-        
-        Args:
-            symbol: Trading pair symbol
-            side: Order side ('buy' or 'sell')
-            amount: Order amount
-            price: Order price
-            params: Additional parameters
-            
-        Returns:
-            Order ID if successful, None otherwise
-        """
+    def create_limit_order(self, symbol, side, amount, price, params=None):
+        """Create a limit order (simplified wrapper)."""
         try:
-            logger.info(f"Attempting to create limit order: {symbol} {side} {amount} @ {price}")
-            
-            # Debug logs for request details
-            symbol_info = get_symbol_info(self, symbol)
-            logger.info(f"Symbol info for order: {symbol_info}")
-            
-            # Format symbol for Bybit (remove '/' if present)
-            formatted_symbol = symbol.replace('/', '')
-            
-            # Convert and validate amount and price according to exchange rules
-            from common.utils.symbol_info import adjust_quantity, adjust_price
-            adjusted_amount = adjust_quantity(amount, symbol_info)
-            adjusted_price = adjust_price(price, symbol_info)
-            
-            logger.info(f"Adjusted order: {formatted_symbol} {side} {adjusted_amount} @ {adjusted_price}")
-            
-            # Direct API call for debugging
-            order_id = self._create_order(
-                symbol=formatted_symbol,
+            logger.info(f"Creating limit order: {symbol} {side} {amount} @ {price}")
+            return self._create_order(
+                symbol=symbol,
                 side=side,
                 order_type="Limit",
-                qty=adjusted_amount,
-                price=adjusted_price,
+                qty=amount,
+                price=price,
                 time_in_force="GoodTillCancel"
             )
-            
-            if order_id:
-                logger.info(f"Order created successfully: {order_id}")
-            else:
-                logger.error("Order creation failed - no order ID returned")
-            
-            return order_id
-        
         except Exception as e:
-            logger.error(f"Error creating limit order: {str(e)}")
+            logger.error(f"Error in create_limit_order: {str(e)}")
             return None
     
     def _create_order(self, symbol, side, order_type, qty, price=None, time_in_force="GoodTillCancel"):

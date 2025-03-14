@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime
 import argparse
+import logging
 
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -16,6 +17,9 @@ from common.exchange.bybit_client import BybitClient
 from common.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# Add at the beginning of run script
+logging.basicConfig(level=logging.INFO)
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='Run a directional grid trading bot')
@@ -100,6 +104,11 @@ try:
             
     except KeyboardInterrupt:
         print("\nBot stopped by user")
+    
+    # After creating the bot instance
+    print("Starting grid bot...")
+    success = bot.start()
+    print(f"Bot start result: {success}")
     
 except Exception as e:
     print(f"Error in main execution: {str(e)}")
