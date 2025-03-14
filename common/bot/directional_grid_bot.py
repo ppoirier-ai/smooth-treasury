@@ -1,6 +1,7 @@
 """Directional grid trading bot with long or short bias."""
 from typing import Dict, List, Optional, Literal
 from common.exchange.base_client import BaseExchangeClient
+from common.exchange.bybit_client import BybitClient
 from common.utils.logger import setup_logger
 from common.utils.symbol_info import get_symbol_info, adjust_quantity, adjust_price
 from datetime import datetime

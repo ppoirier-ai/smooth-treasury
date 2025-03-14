@@ -88,4 +88,11 @@ In rangebound markets, use a narrow price range (0.5-1%) with more grid levels t
 In strongly trending markets, use a wider range (2-5%) with fewer grid levels to avoid over-trading.
 
 ### Partial Position Strategy
-Instead of starting with 100% of capital, use 50-75% for the initial position and allow the bot to scale in with remaining capital at lower prices (for long-biased bots). 
+Instead of starting with 100% of capital, use 50-75% for the initial position and allow the bot to scale in with remaining capital at lower prices (for long-biased bots).
+
+## Size Considerations for Bybit
+
+When using Bybit inverse contracts like BTCUSD:
+- The order size is automatically adjusted to a reasonable contract size
+- For BTCUSD, the bot will convert your USD capital to an appropriate number of contracts
+- This adjustment helps ensure orders are within reasonable limits, especially at high BTC prices 
