@@ -72,7 +72,7 @@ order_size = grid_capital * args.leverage
 print(f"Capital per grid: {grid_capital} | Order size per grid with {args.leverage}x leverage: {order_size}")
 
 try:
-    # Create and start the directional grid bot
+    # Initialize the bot
     bot = DirectionalGridBot(
         exchange=client,
         symbol=args.symbol,
@@ -84,6 +84,11 @@ try:
         lower_price=lower_price,
         upper_price=upper_price
     )
+    
+    # Start the bot immediately after creating it
+    print("Starting grid bot...")
+    success = bot.start()
+    print(f"Bot start result: {success}")
     
     # Set end time for the bot run
     end_time = time.time() + args.duration
@@ -104,11 +109,6 @@ try:
             
     except KeyboardInterrupt:
         print("\nBot stopped by user")
-    
-    # After creating the bot instance
-    print("Starting grid bot...")
-    success = bot.start()
-    print(f"Bot start result: {success}")
     
 except Exception as e:
     print(f"Error in main execution: {str(e)}")

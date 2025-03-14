@@ -179,43 +179,49 @@ class DirectionalGridBot:
             logger.info(f"Set leverage to {self.leverage}x: {result}")
     
     def place_initial_position(self):
-        """Place the initial position based on direction."""
-        if self.initial_position_pct <= 0:
-            logger.info("No initial position requested, skipping...")
-            return True
-        
-        logger.info(f"Placing initial {self.direction} position...")
+        """Place an initial position based on the direction."""
         try:
-            # Get the appropriate side for the initial position
+            # Calculate initial position size
+            position_size = float(self.order_size) * (self.initial_position_pct / 100.0)
+            logger.info(f"Initial position size: {position_size}")
+            
+            # Get current market price
+            price = self._get_current_price()
+            
+            # Determine side based on direction
             side = "buy" if self.direction == "long" else "sell"
             
-            # For inverse contracts, calculate quantity in contracts
-            is_inverse = self.symbol.endswith("USD")
+            # Create a market order for the initial position
+            logger.info(f"Placing initial {side} position of {position_size} at market price")
             
-            # Get current price and calculate amount
-            price = self._get_current_price()
-            amount = self.initial_position_size
-            
-            # Log order details before placement (for debugging)
-            logger.info(f"Placing initial {side} position: {amount} contracts at {price} (market order)")
-            
-            # Place market order for initial position
-            order_id = self.exchange.create_market_order(
+            # Use direct API call for market order
+            result = self.exchange._create_order(
                 symbol=self.symbol,
                 side=side,
-                amount=amount
+                order_type="Market",
+                qty=position_size
             )
             
-            if order_id:
-                logger.info(f"Initial position placed: {order_id}")
+            if result:
+                logger.info(f"Initial position placed successfully: {result}")
                 self.has_initial_position = True
+                
+                # Add to tracking
+                self.active_positions[result] = {
+                    "price": price,
+                    "side": side,
+                    "amount": position_size,
+                    "status": "filled",
+                    "is_initial": True
+                }
+                
                 return True
             else:
                 logger.error("Failed to place initial position")
                 return False
             
         except Exception as e:
-            logger.error(f"Failed to place initial position: {str(e)}")
+            logger.error(f"Error placing initial position: {str(e)}")
             return False
     
     def place_grid_orders(self):
@@ -450,8 +456,16 @@ class DirectionalGridBot:
                 logger.warning(f"Order size {self.order_size} seems too large for {self.symbol}, limiting to 100")
                 self.order_size = 100  # A more reasonable size for testing
             
+            # Place initial position if configured
+            if self.initial_position_pct > 0:
+                logger.info(f"Placing initial position ({self.initial_position_pct}% of capital)...")
+                if not self.place_initial_position():
+                    logger.error("Failed to place initial position. Continuing without it.")
+                else:
+                    logger.info("Initial position placed successfully")
+            
             # DEBUG: Show we're at the order placement stage 
-            logger.info("=== ATTEMPTING TO PLACE ORDERS NOW ===")
+            logger.info("=== PLACING GRID ORDERS ===")
             
             # Get current price for reference
             current_price = self._get_current_price()
@@ -459,6 +473,11 @@ class DirectionalGridBot:
             
             # Place buy orders below current price
             buy_orders_placed = 0
+            
+            # Place sell orders above current price
+            sell_orders_placed = 0
+            
+            # Place buy orders below current price
             for price in self.grid_levels:
                 if price >= current_price:
                     continue  # Skip prices above current price for buy orders
@@ -481,7 +500,6 @@ class DirectionalGridBot:
                     buy_orders_placed += 1
             
             # Place sell orders above current price
-            sell_orders_placed = 0
             for price in self.grid_levels:
                 if price <= current_price:
                     continue  # Skip prices below current price for sell orders
