@@ -27,12 +27,6 @@ class BybitClient(BaseExchangeClient):
         self.time_offset = 0
         self.sync_time()  # Sync time on initialization
         
-        # Initialize available trading pairs
-        self.available_pairs = self._get_available_trading_pairs()
-        
-        # Check if we're connected and if it's a unified margin account
-        self._check_connection()
-        
         # Configure for unified account
         self.account_type = "UNIFIED"  # Unified account
         
@@ -40,28 +34,18 @@ class BybitClient(BaseExchangeClient):
         masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
         logger.info(f"Initializing Bybit client with API key: {masked_key}")
         
+        # Initialize available trading pairs
+        self.available_pairs = {}
+        self._get_available_trading_pairs()
+        
+        # Check if we're connected and if it's a unified margin account
+        self._check_connection()
+        
         # Check server time synchronization
         try:
             self._check_time_sync()
         except Exception as e:
             logger.warning(f"Time sync check failed: {str(e)}")
-        
-        # Initialize connection by fetching available symbols for both linear and inverse futures
-        self.categories = ["linear", "inverse"]
-        
-        for category in self.categories:
-            try:
-                response = self._get_public("/v5/market/instruments-info", {"category": category})
-                
-                if response and "result" in response and "list" in response["result"]:
-                    self.available_pairs[category] = [item["symbol"] for item in response["result"]["list"]]
-                    logger.info(f"Found {len(self.available_pairs[category])} available trading pairs in {category} category")
-                else:
-                    logger.error(f"Failed to fetch available symbols for {category}")
-                    self.available_pairs[category] = []
-            except Exception as e:
-                logger.error(f"Failed to fetch {category} symbols: {str(e)}")
-                self.available_pairs[category] = []
         
         logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
     
@@ -249,6 +233,24 @@ class BybitClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Error in _post_private: {str(e)}")
             return None
+    
+    def _get_available_trading_pairs(self):
+        """Fetch available trading pairs from Bybit."""
+        self.categories = ["linear", "inverse"]
+        
+        for category in self.categories:
+            try:
+                response = self._get_public("/v5/market/instruments-info", {"category": category})
+                
+                if response and "result" in response and "list" in response["result"]:
+                    self.available_pairs[category] = [item["symbol"] for item in response["result"]["list"]]
+                    logger.info(f"Found {len(self.available_pairs[category])} available trading pairs in {category} category")
+                else:
+                    logger.error(f"Failed to fetch available symbols for {category}")
+                    self.available_pairs[category] = []
+            except Exception as e:
+                logger.error(f"Failed to fetch {category} symbols: {str(e)}")
+                self.available_pairs[category] = []
     
     def _detect_symbol_category(self, symbol):
         """Detect the symbol category (linear, inverse, spot, etc.)."""
