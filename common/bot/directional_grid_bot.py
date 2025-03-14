@@ -422,36 +422,71 @@ class DirectionalGridBot:
             logger.info("Cancelling any existing orders...")
             self.exchange.cancel_all_orders(self.symbol)
             
-            # Place initial position if configured
-            if self.initial_position_pct > 0:
-                logger.info("Placing initial position...")
-                if not self.place_initial_position():
-                    logger.error("Failed to place initial position. Stopping bot.")
-                    self.running = False
-                    return False
-                logger.info("Initial position placed successfully")
+            # Check account balance first
+            logger.info("Checking account balance...")
+            balance = self.exchange.get_balance()
+            logger.info(f"Account balance: {balance}")
             
-            # DIRECT ORDER PLACEMENT - BYPASS THE NORMAL METHOD
-            logger.info("Placing grid orders directly...")
+            # EXTENSIVE DEBUG: Try placing a single test order
+            logger.info("=== PLACING TEST ORDER ===")
+            test_price = 80000.0  # Well below market price for a buy order
+            logger.info(f"Placing test BUY order at {test_price} for 1 contract")
+            
+            test_order_id = self.exchange.create_limit_order(
+                symbol=self.symbol,
+                side="buy",
+                amount=1,  # Just 1 contract as a test
+                price=test_price
+            )
+            
+            if test_order_id:
+                logger.info(f"✅ Test order placed successfully: {test_order_id}")
+            else:
+                logger.error("❌ Failed to place test order")
+            
+            # Now do the regular grid orders with more debugging
+            logger.info("=== PLACING GRID ORDERS ===")
             current_price = self._get_current_price()
             logger.info(f"Current price for grid placement: {current_price}")
             orders_placed = 0
             
+            # DEBUG: Print out all grid levels and which ones should be buy vs sell
+            for i, price in enumerate(self.grid_levels):
+                order_type = "BUY" if price < current_price else "SELL"
+                logger.info(f"Grid level {i+1}: {price} - Would place {order_type} order (current price: {current_price})")
+            
             # Place buy orders (below current price)
+            logger.info("Attempting to place BUY orders...")
             for price in self.grid_levels:
                 if price >= current_price:
+                    logger.info(f"Skipping price {price} as it's >= current price {current_price}")
                     continue
                     
-                logger.info(f"Attempting to place BUY order at {price} for {self.order_size}")
-                order_id = self.exchange.create_limit_order(
-                    symbol=self.symbol,
-                    side="buy",
-                    amount=self.order_size,
-                    price=price
-                )
+                logger.info(f"📝 Preparing BUY order at {price} for {self.order_size}")
+                
+                # Try with both methods
+                order_id = None
+                try:
+                    # First try with create_limit_order
+                    logger.info("Trying create_limit_order...")
+                    order_id = self.exchange.create_limit_order(
+                        symbol=self.symbol,
+                        side="buy",
+                        amount=self.order_size,
+                        price=price
+                    )
+                except Exception as e:
+                    logger.error(f"Error using create_limit_order: {str(e)}")
+                    
+                    # Try with _place_order as fallback
+                    try:
+                        logger.info("Trying _place_order as fallback...")
+                        order_id = self._place_order("buy", price, self.order_size)
+                    except Exception as e2:
+                        logger.error(f"Error using _place_order: {str(e2)}")
                 
                 if order_id:
-                    logger.info(f"BUY order placed successfully: {order_id}")
+                    logger.info(f"✅ BUY order placed successfully: {order_id}")
                     self.active_positions[order_id] = {
                         "price": float(price),
                         "side": "buy",
@@ -460,23 +495,40 @@ class DirectionalGridBot:
                     }
                     orders_placed += 1
                 else:
-                    logger.error(f"Failed to place BUY order at {price}")
+                    logger.error(f"❌ Failed to place BUY order at {price}")
             
             # Place sell orders (above current price)
+            logger.info("Attempting to place SELL orders...")
             for price in self.grid_levels:
                 if price <= current_price:
+                    logger.info(f"Skipping price {price} as it's <= current price {current_price}")
                     continue
                     
-                logger.info(f"Attempting to place SELL order at {price} for {self.order_size}")
-                order_id = self.exchange.create_limit_order(
-                    symbol=self.symbol,
-                    side="sell",
-                    amount=self.order_size,
-                    price=price
-                )
+                logger.info(f"📝 Preparing SELL order at {price} for {self.order_size}")
+                
+                # Try with both methods
+                order_id = None
+                try:
+                    # First try with create_limit_order
+                    logger.info("Trying create_limit_order...")
+                    order_id = self.exchange.create_limit_order(
+                        symbol=self.symbol,
+                        side="sell",
+                        amount=self.order_size,
+                        price=price
+                    )
+                except Exception as e:
+                    logger.error(f"Error using create_limit_order: {str(e)}")
+                    
+                    # Try with _place_order as fallback
+                    try:
+                        logger.info("Trying _place_order as fallback...")
+                        order_id = self._place_order("sell", price, self.order_size)
+                    except Exception as e2:
+                        logger.error(f"Error using _place_order: {str(e2)}")
                 
                 if order_id:
-                    logger.info(f"SELL order placed successfully: {order_id}")
+                    logger.info(f"✅ SELL order placed successfully: {order_id}")
                     self.active_positions[order_id] = {
                         "price": float(price),
                         "side": "sell",
@@ -485,9 +537,15 @@ class DirectionalGridBot:
                     }
                     orders_placed += 1
                 else:
-                    logger.error(f"Failed to place SELL order at {price}")
+                    logger.error(f"❌ Failed to place SELL order at {price}")
                 
             logger.info(f"Placed {orders_placed} grid orders directly")
+            
+            # DEBUG: Check if any orders were actually placed
+            open_orders = self.exchange.get_open_orders(self.symbol)
+            logger.info(f"Verifying open orders: found {len(open_orders)} open orders")
+            for order in open_orders:
+                logger.info(f"Open order: {order}")
             
             # Print initial summary
             self.print_summary()
@@ -497,6 +555,7 @@ class DirectionalGridBot:
             
         except Exception as e:
             logger.error(f"Error starting grid bot: {str(e)}")
+            logger.exception("Full traceback:")
             self.running = False
             return False
     

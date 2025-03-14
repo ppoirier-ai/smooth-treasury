@@ -194,41 +194,57 @@ class BybitClient(BaseExchangeClient):
             logger.error(f"Error in private GET request to {endpoint}: {str(e)}")
             return {}
     
-    def _post_private(self, endpoint: str, data: Dict = None) -> Dict:
-        """Make a private POST request to Bybit API."""
-        timestamp = str(self._get_timestamp())
-        recv_window = "5000"
-        data = data or {}
-        
-        # For POST requests, create signature using timestamp + api_key + recv_window + json_body
-        json_body = json.dumps(data)
-        param_str = timestamp + self.api_key + recv_window + json_body
-        
-        # Generate signature
-        signature = hmac.new(
-            bytes(self.api_secret, "utf-8"),
-            bytes(param_str, "utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-        
-        # Set headers
-        headers = {
-            "X-BAPI-API-KEY": self.api_key,
-            "X-BAPI-SIGN": signature,
-            "X-BAPI-TIMESTAMP": timestamp,
-            "X-BAPI-RECV-WINDOW": recv_window,
-            "Content-Type": "application/json"
-        }
-        
-        url = f"{self.base_url}{endpoint}"
-        
+    def _post_private(self, endpoint, data=None):
+        """Make a POST request to a private API endpoint."""
         try:
+            url = f"{self.base_url}{endpoint}"
+            
+            # Generate signature
+            timestamp = int(time.time() * 1000)
+            recv_window = 20000  # Longer receive window to account for time drift
+            
+            param_str = ""
+            if data:
+                param_str = json.dumps(data)
+            
+            signature_payload = f"{timestamp}{self.api_key}{recv_window}{param_str}"
+            signature = hmac.new(
+                self.api_secret.encode("utf-8"),
+                signature_payload.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Headers
+            headers = {
+                "X-BAPI-API-KEY": self.api_key,
+                "X-BAPI-TIMESTAMP": str(timestamp),
+                "X-BAPI-RECV-WINDOW": str(recv_window),
+                "X-BAPI-SIGN": signature,
+                "Content-Type": "application/json"
+            }
+            
+            # Debug log request details
+            logger.info(f"API Request: POST {url}")
+            logger.info(f"Request Headers: {headers}")
+            logger.info(f"Request Data: {data}")
+            
+            # Make request
             response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            return response.json()
+            
+            # Debug log response
+            logger.info(f"API Response Status: {response.status_code}")
+            logger.info(f"API Response Content: {response.text}")
+            
+            # Parse response
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"API error: {response.status_code} - {response.text}")
+                return None
+        
         except Exception as e:
-            logger.error(f"Error in private POST request to {endpoint}: {str(e)}")
-            return {}
+            logger.error(f"Error in _post_private: {str(e)}")
+            return None
     
     def _detect_symbol_category(self, symbol):
         """Detect the symbol category (linear, inverse, spot, etc.)."""
@@ -703,6 +719,11 @@ class BybitClient(BaseExchangeClient):
         try:
             logger.info(f"Creating order: {symbol} {side} {order_type} {qty} @ {price}")
             
+            # Validate inputs
+            if not symbol or not side or not order_type or not qty:
+                logger.error("Missing required parameters for order creation")
+                return None
+            
             # Normalize the symbol
             symbol = symbol.replace('/', '')
             
@@ -739,15 +760,25 @@ class BybitClient(BaseExchangeClient):
             logger.info(f"Sending order request to Bybit: {data}")
             response = self._post_private("/v5/order/create", data)
             
+            if response:
+                logger.info(f"Full API response: {response}")
+                
             if response and "result" in response and "orderId" in response["result"]:
                 order_id = response["result"]["orderId"]
                 logger.info(f"Order created successfully: {order_id}")
                 return order_id
             else:
-                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                error_msg = "Unknown error"
+                if response:
+                    if "retMsg" in response:
+                        error_msg = response["retMsg"]
+                    elif "ret_msg" in response:
+                        error_msg = response["ret_msg"]
+                
                 logger.error(f"Failed to create order: {error_msg}")
                 return None
             
         except Exception as e:
             logger.error(f"Error in _create_order: {str(e)}")
+            logger.exception("Full traceback:")
             return None 
