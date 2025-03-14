@@ -136,3 +136,37 @@ The bot writes detailed logs to help diagnose issues:
 - Account balance updates
 
 Check these logs when troubleshooting problems.
+
+## Implementation Notes
+
+### SDK Integration
+
+Our implementation uses AnchorPy to interact with the Drift Protocol's Solana program. We've created a dual-mode implementation that:
+
+1. Uses the Drift Protocol SDK when available
+2. Falls back to mock implementations for testing and development
+
+This allows testing without needing to connect to the actual Solana blockchain during development.
+
+### Transaction Flow
+
+When placing an order on Drift:
+
+1. The client creates a transaction with the appropriate Drift program instruction
+2. The transaction is signed with the user's keypair
+3. The transaction is sent to the Solana network
+4. The client waits for confirmation
+5. Once confirmed, the order is considered placed
+
+### Error Handling
+
+The implementation includes robust error handling for:
+
+- Connection issues with Solana RPC
+- Transaction failures
+- Insufficient funds
+- Account initialization errors
+
+### Mock Mode
+
+For testing without blockchain interaction, set the environment variable `DRIFT_MOCK_MODE=true`.
