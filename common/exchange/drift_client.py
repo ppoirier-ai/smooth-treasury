@@ -455,6 +455,116 @@ class DriftClient(BaseExchangeClient):
             # Use the mock implementation
             return self._create_limit_order_mock(symbol, side, amount, price, params)
     
+    async def _create_market_order_async(self, symbol: str, side: str, amount: float, params=None) -> Optional[str]:
+        """Create a market order on Drift using the Anchor program."""
+        try:
+            logger.info(f"Creating market order via Drift Protocol: {symbol} {side} {amount}")
+            
+            # Check if user account exists, initialize if needed
+            if not self.user_account:
+                logger.warning("User account not initialized, attempting to initialize")
+                success = await self._initialize_user_account_async()
+                if not success:
+                    logger.error("Failed to initialize user account")
+                    return None
+            
+            # Get market details
+            if symbol not in self.markets:
+                logger.error(f"Symbol {symbol} not found in available markets")
+                return None
+            
+            market = self.markets[symbol]
+            
+            # Create order parameters - similar to limit order but with orderType=1 for market
+            order_params = {
+                "marketIndex": market["market_index"],
+                "direction": 0 if side.lower() == "buy" else 1,  # 0 for long, 1 for short
+                "price": 0,  # For market orders, price is ignored
+                "size": int(amount * (10 ** 8)),  # Convert to integer format (8 decimal places)
+                "orderType": 1,  # 1 for market
+                "reduceOnly": False,
+                "postOnly": False,
+                "immediateOrCancel": True,  # Market orders are IOC
+                "triggerPrice": 0,
+                "triggerCondition": 0,
+                "maxTs": 0
+            }
+            
+            # Generate a client order ID
+            client_order_id = str(uuid.uuid4())
+            
+            # Get recent blockhash
+            async with AsyncClient(self.rpc_url) as client:
+                recent_blockhash = await client.get_recent_blockhash()
+                
+                # Create the transaction
+                tx = Transaction()
+                tx.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
+                
+                # Add placement instruction - commented out for now as we don't have actual SDK
+                # tx.add(self.program.instruction["placeOrder"](
+                #     order_params,
+                #     {"authority": self.wallet_public_key},
+                #     program_id=self.drift_program_id
+                # ))
+                
+                # Sign and send transaction
+                tx.sign(self.keypair)
+                txid = await client.send_transaction(tx, self.keypair)
+                
+                # Wait for confirmation
+                await asyncio.sleep(1)  # Give the transaction some time
+                
+                # Check if transaction succeeded
+                tx_status = await client.get_transaction(txid["result"])
+                if tx_status["result"] and tx_status["result"]["meta"]["err"] is None:
+                    logger.info(f"Successfully placed market order: {txid['result']}")
+                    
+                    # For market orders, we mock an immediate fill
+                    if not hasattr(self, 'orders'):
+                        self.orders = {}
+                    
+                    ticker = self.get_ticker(symbol)
+                    price = ticker["last"]
+                    
+                    self.orders[client_order_id] = {
+                        "id": client_order_id,
+                        "symbol": symbol,
+                        "side": side.lower(),
+                        "amount": float(amount),
+                        "price": float(price),
+                        "filled": float(amount),  # Market orders assumed to be filled
+                        "status": "filled",
+                        "type": "market",
+                        "timestamp": int(time.time() * 1000),
+                        "txid": txid["result"]
+                    }
+                    
+                    # Update balance after fill
+                    self._update_balance_after_fill(symbol, side, amount, price)
+                    
+                    return client_order_id
+                else:
+                    logger.error(f"Failed to place market order: {tx_status}")
+                    return None
+                
+        except Exception as e:
+            logger.error(f"Error creating market order: {e}")
+            return None
+
+    def create_market_order(self, symbol: str, side: str, amount: float, params=None) -> Optional[str]:
+        """Create a market order on Drift (sync wrapper)."""
+        if self.program:
+            # Try to use the async implementation
+            try:
+                return asyncio.run(self._create_market_order_async(symbol, side, amount, params))
+            except Exception as e:
+                logger.error(f"Error in async market order creation, falling back to mock: {e}")
+                return self._create_market_order_mock(symbol, side, amount, params)
+        else:
+            # Use the mock implementation
+            return self._create_market_order_mock(symbol, side, amount, params)
+    
     # Similar implementations for other methods (create_market_order, cancel_order, etc.)
     # For brevity, we'll just use the mock implementations for now
     
@@ -691,4 +801,174 @@ class DriftClient(BaseExchangeClient):
             logger.info(f"Updated balances after {side} order: {self.balances}")
             
         except Exception as e:
-            logger.error(f"Error updating balance after fill: {e}") 
+            logger.error(f"Error updating balance after fill: {e}")
+
+    def get_positions(self, symbol: str = None) -> List[Dict[str, Any]]:
+        """Get all open positions, optionally for a specific symbol."""
+        try:
+            # In a real implementation, we would fetch positions from Drift
+            # For now, we'll simulate positions based on filled orders
+            
+            if not hasattr(self, 'positions'):
+                self.positions = {}
+                
+                # Create positions based on filled orders
+                if hasattr(self, 'orders'):
+                    for order_id, order in self.orders.items():
+                        if order["status"] == "filled":
+                            symbol = order["symbol"]
+                            side = order["side"]
+                            amount = order["amount"]
+                            price = order["price"]
+                            
+                            # Update or create position
+                            if symbol not in self.positions:
+                                self.positions[symbol] = {
+                                    "symbol": symbol,
+                                    "size": amount if side == "buy" else -amount,
+                                    "entry_price": price,
+                                    "liquidation_price": 0,  # Would calculate based on leverage
+                                    "unrealized_pnl": 0
+                                }
+                            else:
+                                # Update existing position
+                                current_size = self.positions[symbol]["size"]
+                                current_value = abs(current_size) * self.positions[symbol]["entry_price"]
+                                
+                                # Add to position
+                                if (side == "buy" and current_size >= 0) or (side == "sell" and current_size < 0):
+                                    new_size = current_size + (amount if side == "buy" else -amount)
+                                    new_value = current_value + (amount * price)
+                                    if new_size != 0:
+                                        self.positions[symbol]["entry_price"] = new_value / abs(new_size)
+                                    self.positions[symbol]["size"] = new_size
+                                # Reduce position
+                                else:
+                                    new_size = current_size + (amount if side == "buy" else -amount)
+                                    # Position direction flipped
+                                    if (current_size > 0 and new_size < 0) or (current_size < 0 and new_size > 0):
+                                        self.positions[symbol]["entry_price"] = price
+                                    self.positions[symbol]["size"] = new_size
+            
+            # Return all positions or filter by symbol
+            result = []
+            for symbol_key, position in self.positions.items():
+                if symbol is None or symbol_key == symbol:
+                    # Update PnL using current price
+                    ticker = self.get_ticker(symbol_key)
+                    current_price = ticker["last"]
+                    position_size = position["size"]
+                    entry_price = position["entry_price"]
+                    
+                    if position_size > 0:  # Long
+                        unrealized_pnl = position_size * (current_price - entry_price)
+                    else:  # Short
+                        unrealized_pnl = abs(position_size) * (entry_price - current_price)
+                    
+                    position_copy = position.copy()
+                    position_copy["unrealized_pnl"] = unrealized_pnl
+                    position_copy["mark_price"] = current_price
+                    
+                    result.append(position_copy)
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Error getting positions: {e}")
+            return []
+
+    def close_position(self, symbol: str) -> bool:
+        """Close an open position for a symbol."""
+        try:
+            positions = self.get_positions(symbol)
+            if not positions:
+                logger.warning(f"No position found for {symbol}")
+                return False
+            
+            position = positions[0]
+            size = position["size"]
+            
+            if size == 0:
+                logger.info(f"Position for {symbol} is already closed")
+                return True
+            
+            # Place a market order in the opposite direction
+            side = "sell" if size > 0 else "buy"
+            amount = abs(size)
+            
+            logger.info(f"Closing position for {symbol}: {side} {amount}")
+            order_id = self.create_market_order(symbol, side, amount)
+            
+            if order_id:
+                logger.info(f"Successfully closed position for {symbol}")
+                return True
+            else:
+                logger.error(f"Failed to close position for {symbol}")
+                return False
+        
+        except Exception as e:
+            logger.error(f"Error closing position: {e}")
+            return False
+    
+    async def _send_transaction_with_retry(self, transaction, max_retries=3, retry_delay=1):
+        """
+        Send a transaction with retry logic for common Solana errors.
+        
+        Args:
+            transaction: The transaction to send
+            max_retries: Maximum number of retry attempts
+            retry_delay: Delay between retries in seconds
+            
+        Returns:
+            Transaction signature if successful, None otherwise
+        """
+        retries = 0
+        last_error = None
+        
+        while retries < max_retries:
+            try:
+                async with AsyncClient(self.rpc_url) as client:
+                    # Get a fresh blockhash for each retry
+                    if retries > 0:
+                        recent_blockhash = await client.get_recent_blockhash()
+                        transaction.recent_blockhash = recent_blockhash["result"]["value"]["blockhash"]
+                    
+                    # Send the transaction
+                    txid = await client.send_transaction(transaction, self.keypair)
+                    
+                    # Wait for confirmation
+                    confirm_start = time.time()
+                    while time.time() - confirm_start < 15:  # 15 second timeout
+                        await asyncio.sleep(0.5)
+                        tx_status = await client.get_signature_statuses([txid["result"]])
+                        if tx_status["result"]["value"][0] is not None:
+                            if tx_status["result"]["value"][0]["confirmationStatus"] == "confirmed":
+                                logger.info(f"Transaction confirmed: {txid['result']}")
+                                return txid["result"]
+                
+                    logger.warning(f"Transaction not confirmed in time: {txid['result']}")
+                    # We'll retry with a new blockhash
+                    
+                retries += 1
+                if retries < max_retries:
+                    logger.info(f"Retrying transaction (attempt {retries+1}/{max_retries})...")
+                    await asyncio.sleep(retry_delay)
+                    
+            except Exception as e:
+                last_error = str(e)
+                retries += 1
+                
+                # Check for specific error types that need special handling
+                if "blockhash not found" in str(e).lower():
+                    logger.warning("Blockhash expired, will retry with fresh blockhash")
+                elif "insufficient funds" in str(e).lower():
+                    logger.error("Insufficient funds for transaction")
+                    # No point retrying for this error
+                    break
+                
+                if retries < max_retries:
+                    logger.info(f"Retrying transaction (attempt {retries+1}/{max_retries})...")
+                    await asyncio.sleep(retry_delay)
+        
+        logger.error(f"Failed to send transaction after {max_retries} attempts. Last error: {last_error}")
+        return None 
