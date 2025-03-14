@@ -676,13 +676,13 @@ class BybitClient(BaseExchangeClient):
                 order_type="Limit",
                 qty=amount,
                 price=price,
-                time_in_force="GoodTillCancel"
+                time_in_force="GTC"
             )
         except Exception as e:
             logger.error(f"Error in create_limit_order: {str(e)}")
             return None
     
-    def _create_order(self, symbol, side, order_type, qty, price=None, time_in_force="GoodTillCancel"):
+    def _create_order(self, symbol, side, order_type, qty, price=None, time_in_force="GTC"):
         """Create a new order with simplified interface."""
         try:
             logger.info(f"Creating order: {symbol} {side} {order_type} {qty} @ {price}")
@@ -721,8 +721,10 @@ class BybitClient(BaseExchangeClient):
             if price is not None:
                 data["price"] = str(price)
             
-            # Add time in force
-            data["timeInForce"] = time_in_force
+            # FIXED: Use correct timeInForce value for Bybit
+            # Bybit accepts: GTC (Good Till Cancel), IOC (Immediate or Cancel), FOK (Fill or Kill), PO (Post Only)
+            # "GoodTillCancel" is not a valid value, but "GTC" is
+            data["timeInForce"] = "GTC"
             
             # Make the API request
             logger.info(f"Sending order request to Bybit: {data}")
