@@ -431,13 +431,63 @@ class DirectionalGridBot:
                     return False
                 logger.info("Initial position placed successfully")
             
-            # Place grid orders
-            logger.info("Placing grid orders...")
-            if not self.place_grid_orders():
-                logger.error("Failed to place grid orders. Stopping bot.")
-                self.running = False
-                return False
-            logger.info("Grid orders placed successfully")
+            # DIRECT ORDER PLACEMENT - BYPASS THE NORMAL METHOD
+            logger.info("Placing grid orders directly...")
+            current_price = self._get_current_price()
+            logger.info(f"Current price for grid placement: {current_price}")
+            orders_placed = 0
+            
+            # Place buy orders (below current price)
+            for price in self.grid_levels:
+                if price >= current_price:
+                    continue
+                    
+                logger.info(f"Attempting to place BUY order at {price} for {self.order_size}")
+                order_id = self.exchange.create_limit_order(
+                    symbol=self.symbol,
+                    side="buy",
+                    amount=self.order_size,
+                    price=price
+                )
+                
+                if order_id:
+                    logger.info(f"BUY order placed successfully: {order_id}")
+                    self.active_positions[order_id] = {
+                        "price": float(price),
+                        "side": "buy",
+                        "amount": float(self.order_size),
+                        "status": "open"
+                    }
+                    orders_placed += 1
+                else:
+                    logger.error(f"Failed to place BUY order at {price}")
+            
+            # Place sell orders (above current price)
+            for price in self.grid_levels:
+                if price <= current_price:
+                    continue
+                    
+                logger.info(f"Attempting to place SELL order at {price} for {self.order_size}")
+                order_id = self.exchange.create_limit_order(
+                    symbol=self.symbol,
+                    side="sell",
+                    amount=self.order_size,
+                    price=price
+                )
+                
+                if order_id:
+                    logger.info(f"SELL order placed successfully: {order_id}")
+                    self.active_positions[order_id] = {
+                        "price": float(price),
+                        "side": "sell",
+                        "amount": float(self.order_size),
+                        "status": "open"
+                    }
+                    orders_placed += 1
+                else:
+                    logger.error(f"Failed to place SELL order at {price}")
+                
+            logger.info(f"Placed {orders_placed} grid orders directly")
             
             # Print initial summary
             self.print_summary()

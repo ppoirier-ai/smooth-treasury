@@ -696,4 +696,58 @@ class BybitClient(BaseExchangeClient):
         
         except Exception as e:
             logger.error(f"Error creating limit order: {str(e)}")
+            return None
+    
+    def _create_order(self, symbol, side, order_type, qty, price=None, time_in_force="GoodTillCancel"):
+        """Create a new order with simplified interface."""
+        try:
+            logger.info(f"Creating order: {symbol} {side} {order_type} {qty} @ {price}")
+            
+            # Normalize the symbol
+            symbol = symbol.replace('/', '')
+            
+            # Normalize side
+            bybit_side = side.capitalize()  # Buy or Sell
+            
+            # Detect category (linear, inverse, etc.)
+            if symbol.endswith('USD'):
+                category = 'inverse'
+            elif symbol.endswith('USDT'):
+                category = 'linear'
+            else:
+                category = 'spot'
+            
+            logger.info(f"Order category: {category}")
+            
+            # Create order data
+            data = {
+                "category": category,
+                "symbol": symbol,
+                "side": bybit_side,
+                "orderType": order_type,
+                "qty": str(qty)
+            }
+            
+            # Add price for limit orders
+            if price is not None:
+                data["price"] = str(price)
+            
+            # Add time in force
+            data["timeInForce"] = time_in_force
+            
+            # Make the API request
+            logger.info(f"Sending order request to Bybit: {data}")
+            response = self._post_private("/v5/order/create", data)
+            
+            if response and "result" in response and "orderId" in response["result"]:
+                order_id = response["result"]["orderId"]
+                logger.info(f"Order created successfully: {order_id}")
+                return order_id
+            else:
+                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
+                logger.error(f"Failed to create order: {error_msg}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error in _create_order: {str(e)}")
             return None 
