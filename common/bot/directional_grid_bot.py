@@ -101,7 +101,10 @@ class DirectionalGridBot:
             step = (upper_price - lower_price) / (self.grid_count - 1) if self.grid_count > 1 else 0
             
             # Create grid levels
-            self.grid_levels = [round(lower_price + i * step, 1) for i in range(self.grid_count)]
+            self.grid_levels = [lower_price + i * step for i in range(self.grid_count)]
+            
+            # Adjust prices according to exchange precision
+            self.grid_levels = [float(adjust_price(price, self.symbol_info)) for price in self.grid_levels]
             logger.info(f"Grid levels: {self.grid_levels}")
             
             # Store the actual range used for reference
