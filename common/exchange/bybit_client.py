@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 from common.exchange.base_client import BaseExchangeClient
 from common.utils.logger import setup_logger
+from common.utils.symbol_info import get_symbol_info
 
 logger = setup_logger(__name__)
 
@@ -660,36 +661,39 @@ class BybitClient(BaseExchangeClient):
             Order ID if successful, None otherwise
         """
         try:
-            normalized_symbol = self._normalize_symbol(symbol)
-            category = self._detect_symbol_category(symbol)
+            logger.info(f"Attempting to create limit order: {symbol} {side} {amount} @ {price}")
             
-            # Convert side to proper format for Bybit
-            bybit_side = side.capitalize()  # Convert 'buy' -> 'Buy', 'sell' -> 'Sell'
+            # Debug logs for request details
+            symbol_info = get_symbol_info(self, symbol)
+            logger.info(f"Symbol info for order: {symbol_info}")
             
-            # Create order data
-            data = {
-                "category": category,
-                "symbol": normalized_symbol,
-                "side": bybit_side,
-                "orderType": "Limit",
-                "qty": str(amount),
-                "price": str(price)
-            }
+            # Format symbol for Bybit (remove '/' if present)
+            formatted_symbol = symbol.replace('/', '')
             
-            # Add any additional parameters
-            if params:
-                if params.get('reduce_only'):
-                    data["reduceOnly"] = "true"
-                
-            response = self._post_private("/v5/order/create", data)
+            # Convert and validate amount and price according to exchange rules
+            from common.utils.symbol_info import adjust_quantity, adjust_price
+            adjusted_amount = adjust_quantity(amount, symbol_info)
+            adjusted_price = adjust_price(price, symbol_info)
             
-            if response and "result" in response and "orderId" in response["result"]:
-                logger.info(f"Limit order placed: {response['result']['orderId']}")
-                return response["result"]["orderId"]
+            logger.info(f"Adjusted order: {formatted_symbol} {side} {adjusted_amount} @ {adjusted_price}")
+            
+            # Direct API call for debugging
+            order_id = self._create_order(
+                symbol=formatted_symbol,
+                side=side,
+                order_type="Limit",
+                qty=adjusted_amount,
+                price=adjusted_price,
+                time_in_force="GoodTillCancel"
+            )
+            
+            if order_id:
+                logger.info(f"Order created successfully: {order_id}")
             else:
-                error_msg = response.get("retMsg", "Unknown error") if response else "No response"
-                logger.error(f"Failed to create limit order: {error_msg}")
-                return None
+                logger.error("Order creation failed - no order ID returned")
+            
+            return order_id
+        
         except Exception as e:
-            logger.error(f"Failed to create limit order: {str(e)}")
+            logger.error(f"Error creating limit order: {str(e)}")
             return None 

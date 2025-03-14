@@ -203,62 +203,73 @@ class DirectionalGridBot:
         
         orders_placed = 0
         current_price = self._get_current_price()
+        logger.info(f"Current price for grid placement: {current_price}")
         
-        # For long bias:
-        # - Buy orders below current price
-        # - Sell orders above current price
-        #
-        # For short bias:
-        # - Buy orders above current price
-        # - Sell orders below current price
-        
+        # For Bybit inverse contracts (BTCUSD), directly place orders across the grid
         try:
+            # Place buy orders (below current price)
             for price in self.grid_levels:
-                # Skip levels too close to current price (within 0.1%)
-                if abs(price - current_price) / current_price < 0.001:
-                    continue
+                if price >= current_price:
+                    continue  # Skip prices above current price for buy orders
                     
-                side = None
-                order_type = None
-                
-                # Determine side based on direction and price relative to current
-                if self.direction == "long":
-                    if price < current_price:
-                        side = "buy"
-                        order_type = "entry"
-                    else:
-                        side = "sell"
-                        order_type = "take_profit"
-                else:  # short bias
-                    if price > current_price:
-                        side = "buy"
-                        order_type = "take_profit"
-                    else:
-                        side = "sell"
-                        order_type = "entry"
-                
-                # Calculate order size (may depend on price level)
+                side = "buy"
                 amount = self.order_size
+                logger.info(f"Placing {side} limit order at {price} for {amount}")
                 
-                # Log order details
-                logger.info(f"Placing {side} limit order at {price} for {amount} ({order_type})")
-                
-                # Place the order
                 try:
-                    order_id = self._place_order(side, price, amount, order_type)
+                    # Direct Bybit order placement for inverse contracts
+                    order_id = self.exchange.create_limit_order(
+                        symbol=self.symbol,
+                        side=side,
+                        amount=amount,
+                        price=price
+                    )
                     
                     if order_id:
-                        logger.info(f"Order placed: {order_id}")
+                        logger.info(f"Buy order placed: {order_id}")
                         self.active_positions[order_id] = {
                             "price": float(price),
                             "side": side,
                             "amount": float(amount),
-                            "type": order_type,
                             "status": "open"
                         }
                         orders_placed += 1
+                    else:
+                        logger.error(f"Failed to place {side} order at {price}")
                 except Exception as e:
-                    logger.error(f"Failed to place {side} order at {price}: {str(e)}")
+                    logger.error(f"Error placing {side} order at {price}: {str(e)}")
+            
+            # Place sell orders (above current price)
+            for price in self.grid_levels:
+                if price <= current_price:
+                    continue  # Skip prices below current price for sell orders
+                    
+                side = "sell"
+                amount = self.order_size
+                logger.info(f"Placing {side} limit order at {price} for {amount}")
+                
+                try:
+                    # Direct Bybit order placement for inverse contracts
+                    order_id = self.exchange.create_limit_order(
+                        symbol=self.symbol,
+                        side=side,
+                        amount=amount,
+                        price=price
+                    )
+                    
+                    if order_id:
+                        logger.info(f"Sell order placed: {order_id}")
+                        self.active_positions[order_id] = {
+                            "price": float(price),
+                            "side": side,
+                            "amount": float(amount),
+                            "status": "open"
+                        }
+                        orders_placed += 1
+                    else:
+                        logger.error(f"Failed to place {side} order at {price}")
+                except Exception as e:
+                    logger.error(f"Error placing {side} order at {price}: {str(e)}")
             
             logger.info(f"Placed {orders_placed} grid orders")
             return orders_placed > 0
@@ -273,16 +284,26 @@ class DirectionalGridBot:
             return
         
         try:
-            # Check for filled orders
+            # Check for open orders
             open_orders = self.exchange.get_open_orders(self.symbol)
-            logger.info(f"Checking {len(open_orders)} open orders")
+            logger.info(f"Found {len(open_orders)} open orders")
+            
+            # If we have no orders but should have, try placing them again
+            if not open_orders and not self.active_positions:
+                logger.warning("No active orders found. Attempting to place grid orders again.")
+                self.place_grid_orders()
+                return
             
             # Get current positions
             positions = self.exchange.get_positions(self.symbol)
             if positions:
                 logger.info(f"Current positions: {positions}")
             
-            # Check for filled orders (orders that are no longer open)
+            # Print current price
+            current_price = self._get_current_price()
+            logger.info(f"Current price: {current_price}")
+            
+            # Check for any orders that were filled
             active_order_ids = {order['id'] for order in open_orders if 'id' in order}
             filled_order_ids = set(self.active_positions.keys()) - active_order_ids
             
@@ -294,7 +315,7 @@ class DirectionalGridBot:
                     if order_id in self.active_positions:
                         filled_order = self.active_positions[order_id]
                         self._handle_filled_order(order_id, filled_order)
-                    
+        
         except Exception as e:
             logger.error(f"Error in monitor_and_update: {str(e)}")
     
