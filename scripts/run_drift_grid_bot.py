@@ -61,6 +61,20 @@ try:
         print(f"Error getting ticker: {e}")
         print("Using default price of 75000 for testing purposes")
         current_price = 75000  # Default for testing
+
+    # Set leverage for the symbol
+    if args.leverage > 1:
+        leverage_success = client.set_leverage(args.symbol, args.leverage)
+        print(f"Setting leverage to {args.leverage}x: {'Success' if leverage_success else 'Failed'}")
+    
+    # Check available balance
+    balance = client.get_balance("USDC")
+    if "USDC" in balance and balance["USDC"] < args.capital:
+        print(f"WARNING: Available USDC balance ({balance['USDC']}) is less than requested capital ({args.capital})")
+        confirm = input("Continue anyway? (y/n): ")
+        if confirm.lower() != 'y':
+            print("Exiting...")
+            sys.exit(0)
 except Exception as e:
     print(f"Failed to initialize Drift client: {e}")
     sys.exit(1)

@@ -170,3 +170,57 @@ The implementation includes robust error handling for:
 ### Mock Mode
 
 For testing without blockchain interaction, set the environment variable `DRIFT_MOCK_MODE=true`.
+
+## Example Usage with the Grid Bot
+
+Here's a practical example of using the grid bot with Drift:
+
+### Setup
+
+1. Generate a Solana wallet (if you don't have one):
+   ```
+   solana-keygen new --outfile ~/drift_wallet.json
+   ```
+
+2. Fund your wallet with SOL and USDC on Devnet:
+   ```
+   solana airdrop 1 $(solana-keygen pubkey ~/drift_wallet.json) --url https://api.devnet.solana.com
+   ```
+   (Note: For USDC, you'll need to use a faucet or transfer from another account)
+
+### Running a Basic Grid Bot
+
+For a simple long grid trading strategy with 3 grid levels:
+
+```
+export PRIVATE_KEY=$(cat ~/drift_wallet.json | grep -oP '(\[.*?\])' | head -1)
+
+python scripts/run_drift_grid_bot.py \
+  --private-key "$PRIVATE_KEY" \
+  --symbol "cbBTC-PERP" \
+  --capital 100 \
+  --grid-count 3 \
+  --direction long \
+  --leverage 2 \
+  --range-pct 5 \
+  --testnet \
+  --duration 1800
+```
+
+This will:
+- Create a long-biased grid for cbBTC-PERP
+- Use $100 USDC as capital
+- Create 3 grid levels within a 5% price range
+- Use 2x leverage
+- Run for 30 minutes (1800 seconds)
+- Use Solana Devnet
+
+### Testing Without Real Transactions
+
+You can test the bot's logic without making real transactions by setting:
+
+```
+export DRIFT_MOCK_MODE=true
+```
+
+before running the script. This will use simulated market data and order execution.
