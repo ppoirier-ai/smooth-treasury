@@ -16,23 +16,22 @@ logger = setup_logger(__name__)
 class BybitClient(BaseExchangeClient):
     """Bybit exchange client implementation."""
     
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = True):
-        """Initialize the Bybit client.
-        
-        Args:
-            api_key: API key
-            api_secret: API secret
-            testnet: Whether to use testnet
-        """
-        # Call the parent constructor with the API credentials
-        super().__init__(api_key=api_key, api_secret=api_secret)
-        
+    def __init__(self, api_key: str, api_secret: str, testnet: bool = False):
+        """Initialize Bybit client with API credentials."""
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
-        
-        # Bybit API URLs
         self.base_url = "https://api-testnet.bybit.com" if testnet else "https://api.bybit.com"
+        
+        # For time synchronization
+        self.time_offset = 0
+        self.sync_time()  # Sync time on initialization
+        
+        # Initialize available trading pairs
+        self.available_pairs = self._get_available_trading_pairs()
+        
+        # Check if we're connected and if it's a unified margin account
+        self._check_connection()
         
         # Configure for unified account
         self.account_type = "UNIFIED"  # Unified account
@@ -48,7 +47,6 @@ class BybitClient(BaseExchangeClient):
             logger.warning(f"Time sync check failed: {str(e)}")
         
         # Initialize connection by fetching available symbols for both linear and inverse futures
-        self.available_pairs = {}
         self.categories = ["linear", "inverse"]
         
         for category in self.categories:
@@ -67,6 +65,33 @@ class BybitClient(BaseExchangeClient):
         
         logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
     
+    def sync_time(self):
+        """Synchronize local time with Bybit server time."""
+        try:
+            server_time = self._get_server_time()
+            local_time = int(time.time() * 1000)
+            self.time_offset = server_time - local_time
+            logger.info(f"Time offset between local and server: {self.time_offset}ms")
+        except Exception as e:
+            logger.error(f"Failed to sync time: {str(e)}")
+    
+    def _get_server_time(self):
+        """Get Bybit server time."""
+        try:
+            response = requests.get(f"{self.base_url}/v5/market/time")
+            if response.status_code == 200:
+                result = response.json()
+                if "result" in result and "timeSecond" in result["result"]:
+                    return int(result["result"]["timeSecond"]) * 1000
+            raise Exception("Failed to get server time")
+        except Exception as e:
+            logger.error(f"Error getting server time: {str(e)}")
+            return int(time.time() * 1000)  # Fallback to local time
+    
+    def _get_timestamp(self):
+        """Get current timestamp adjusted for server time offset."""
+        return int(time.time() * 1000) + self.time_offset
+    
     def _check_time_sync(self):
         """Check if local time is synchronized with server time."""
         try:
@@ -83,46 +108,6 @@ class BybitClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Error checking time sync: {str(e)}")
             return None
-    
-    def _sync_time(self):
-        """Synchronize local time with Bybit server time."""
-        try:
-            response = self._get_public("/v5/market/time")
-            if response and "result" in response and "timeSecond" in response["result"]:
-                server_time = int(response["result"]["timeSecond"]) * 1000
-                local_time = int(time.time() * 1000)
-                time_diff = local_time - server_time
-                
-                if abs(time_diff) > 1000:  # If difference is more than 1 second
-                    logger.warning(f"Time difference between local and server: {time_diff}ms")
-                    # Store the offset to adjust future timestamps
-                    self.time_offset = time_diff
-                    return True
-                else:
-                    logger.info("Time is already synchronized with server")
-                    self.time_offset = 0
-                    return True
-            else:
-                logger.error("Failed to get server time")
-                return False
-        except Exception as e:
-            logger.error(f"Error syncing time: {str(e)}")
-            return False
-    
-    def _get_timestamp(self) -> int:
-        """Get current timestamp in milliseconds directly from server if possible."""
-        try:
-            response = self._get_public("/v5/market/time")
-            if response and "result" in response and "timeSecond" in response["result"]:
-                return int(response["result"]["timeSecond"]) * 1000
-        except:
-            pass
-        
-        # Fallback to local time with offset
-        if hasattr(self, 'time_offset'):
-            return int(time.time() * 1000) - self.time_offset
-        
-        return int(time.time() * 1000)
     
     def _generate_signature(self, params_str: str) -> str:
         """Generate signature for API request."""
@@ -149,47 +134,60 @@ class BybitClient(BaseExchangeClient):
     
     def _get_private(self, endpoint: str, params: Dict = None) -> Dict:
         """Make a private GET request to Bybit API."""
-        timestamp = str(self._get_timestamp())
-        recv_window = "5000"
-        params = params or {}
-        
-        # For GET requests with query parameters, we need to include them in the signature
-        # First, create the query string for the URL
-        query_string = ""
-        if params:
-            # Sort parameters alphabetically and create the query string
-            sorted_params = dict(sorted(params.items()))
-            query_string = "&".join([f"{k}={v}" for k, v in sorted_params.items()])
-        
-        # Create signature using timestamp + api_key + recv_window + query (if any)
-        param_str = timestamp + self.api_key + recv_window
-        if query_string:
-            param_str += query_string
-        
-        # Generate signature
-        signature = hmac.new(
-            bytes(self.api_secret, "utf-8"),
-            bytes(param_str, "utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-        
-        # Set headers
-        headers = {
-            "X-BAPI-API-KEY": self.api_key,
-            "X-BAPI-SIGN": signature,
-            "X-BAPI-TIMESTAMP": timestamp,
-            "X-BAPI-RECV-WINDOW": recv_window
-        }
-        
-        # Construct the URL with query parameters if any
-        url = f"{self.base_url}{endpoint}"
-        if query_string:
-            url += f"?{query_string}"
-        
         try:
+            # Use the corrected timestamp
+            timestamp = str(self._get_timestamp())
+            recv_window = "20000"
+            params = params or {}
+            
+            # For GET requests with query parameters, we need to include them in the signature
+            # First, create the query string for the URL
+            query_string = ""
+            if params:
+                # Sort parameters alphabetically and create the query string
+                sorted_params = dict(sorted(params.items()))
+                query_string = "&".join([f"{k}={v}" for k, v in sorted_params.items()])
+            
+            # Create signature using timestamp + api_key + recv_window + query (if any)
+            param_str = timestamp + self.api_key + recv_window
+            if query_string:
+                param_str += query_string
+            
+            # Generate signature
+            signature = hmac.new(
+                self.api_secret.encode("utf-8"),
+                param_str.encode("utf-8"),
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Set headers
+            headers = {
+                "X-BAPI-API-KEY": self.api_key,
+                "X-BAPI-SIGN": signature,
+                "X-BAPI-TIMESTAMP": timestamp,
+                "X-BAPI-RECV-WINDOW": recv_window
+            }
+            
+            # Construct the URL with query parameters if any
+            url = f"{self.base_url}{endpoint}"
+            if query_string:
+                url += f"?{query_string}"
+            
+            # Debug logs
+            logger.info(f"API Request: GET {url}")
+            logger.info(f"Request Headers: {headers}")
+            
             response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
+            
+            # Debug log response
+            logger.info(f"API Response Status: {response.status_code}")
+            logger.info(f"API Response Content: {response.text}")
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"API error: {response.status_code} - {response.text}")
+                return {}
         except Exception as e:
             logger.error(f"Error in private GET request to {endpoint}: {str(e)}")
             return {}
@@ -199,9 +197,9 @@ class BybitClient(BaseExchangeClient):
         try:
             url = f"{self.base_url}{endpoint}"
             
-            # Generate signature
-            timestamp = int(time.time() * 1000)
-            recv_window = 20000  # Longer receive window to account for time drift
+            # Generate signature with adjusted timestamp
+            timestamp = self._get_timestamp()
+            recv_window = 20000
             
             param_str = ""
             if data:
@@ -214,7 +212,7 @@ class BybitClient(BaseExchangeClient):
                 hashlib.sha256
             ).hexdigest()
             
-            # Headers
+            # Headers with corrected timestamp
             headers = {
                 "X-BAPI-API-KEY": self.api_key,
                 "X-BAPI-TIMESTAMP": str(timestamp),
@@ -237,7 +235,13 @@ class BybitClient(BaseExchangeClient):
             
             # Parse response
             if response.status_code == 200:
-                return response.json()
+                result = response.json()
+                if result and "retCode" in result and result["retCode"] == 0:
+                    return result
+                else:
+                    error_msg = result.get("retMsg", "Unknown error") if result else "No response"
+                    logger.error(f"API error: {error_msg}")
+                    return result  # Return the result even with error for debugging
             else:
                 logger.error(f"API error: {response.status_code} - {response.text}")
                 return None
