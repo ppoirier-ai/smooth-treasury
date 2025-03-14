@@ -38,14 +38,11 @@ class BybitClient(BaseExchangeClient):
         self.available_pairs = {}
         self._get_available_trading_pairs()
         
-        # Check if we're connected and if it's a unified margin account
-        self._check_connection()
-        
-        # Check server time synchronization
+        # Try to check connection - but continue even if it fails
         try:
-            self._check_time_sync()
+            self._check_connection()
         except Exception as e:
-            logger.warning(f"Time sync check failed: {str(e)}")
+            logger.error(f"Connection check failed: {str(e)}")
         
         logger.info(f"Connected to Bybit {'testnet' if testnet else 'mainnet'} with unified account")
     
@@ -787,4 +784,32 @@ class BybitClient(BaseExchangeClient):
         except Exception as e:
             logger.error(f"Error in _create_order: {str(e)}")
             logger.exception("Full traceback:")
-            return None 
+            return None
+    
+    def _check_connection(self):
+        """Check connection to Bybit and verify account type."""
+        try:
+            # Test API connectivity with a simple account info request
+            response = self._get_private("/v5/account/info")
+            
+            if response and "result" in response:
+                # Check if the account is unified margin
+                account_type = response["result"].get("unifiedMarginStatus")
+                
+                if account_type:
+                    logger.info(f"Account type: {account_type}")
+                    if account_type in [1, "1", "UNIFIED"]:
+                        logger.info("Unified margin account confirmed")
+                    else:
+                        logger.warning("Account is not using unified margin - some features may not work")
+                else:
+                    logger.warning("Could not determine account type")
+                
+                return True
+            else:
+                logger.error("Failed to connect to Bybit API")
+                return False
+        except Exception as e:
+            logger.error(f"Error checking connection: {str(e)}")
+            # Continue anyway - don't fail initialization
+            return False 
