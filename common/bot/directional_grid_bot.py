@@ -121,19 +121,39 @@ class DirectionalGridBot:
         # Calculate capital per grid level
         capital_per_grid = self.total_capital / self.grid_count
         
-        # For inverse contracts like BTCUSD, order size is in contracts
-        # 1 contract = 1 USD / price (for BTCUSD)
-        avg_price = (self.lower_price + self.upper_price) / 2
+        # Get current price for calculations
+        current_price = self._get_current_price()
         
-        # For BTCUSD inverse perpetual, we need to convert USD to contract quantity
-        # The contract value is 1 USD, so the number of contracts is simply the capital amount
-        if 'USD' in self.symbol and self.symbol.startswith('BTC'):
-            # For inverse contracts, order size is directly in USD
-            order_size = capital_per_grid
-            logger.info(f"Inverse contract detected. Using {order_size} contracts per grid.")
+        # For BTCUSD inverse perpetual on Bybit:
+        # 1. Capital is specified in USD
+        # 2. Order size should be specified in contracts (where 1 contract = 1 USD)
+        # 3. Need to convert USD value to appropriate contract size
+        
+        if 'USD' in self.symbol and self.symbol.endswith('USD') and isinstance(self.exchange, BybitClient):
+            # For Bybit inverse contracts, we need to scale down the size appropriately
+            # Contract value is 1 USD, but we need to consider the actual BTC amount
+            
+            # A reasonable size for BTCUSD (at ~80k USD/BTC) might be 100-200 contracts
+            # Let's calculate a scaled size based on current price
+            btc_amount = capital_per_grid / current_price  # Convert USD to BTC
+            scaled_size = int(btc_amount * 10000)  # Scale to a reasonable contract size 
+            
+            # Ensure minimum size
+            min_size = 100  # Reasonable minimum for BTCUSD
+            order_size = max(scaled_size, min_size)
+            
+            logger.info(f"Bybit inverse contract detected. Adjusted size: {order_size} contracts")
+            logger.info(f"BTC equivalent: ~{btc_amount:.6f} BTC")
         else:
-            # For linear contracts, we need to convert to the base currency
-            order_size = capital_per_grid / avg_price
+            # For other contracts, use the original calculation
+            if 'USD' in self.symbol and self.symbol.startswith('BTC'):
+                # For inverse contracts, order size is directly in USD
+                order_size = capital_per_grid
+                logger.info(f"Inverse contract detected. Using {order_size} contracts per grid.")
+            else:
+                # For linear contracts, convert to the base currency
+                avg_price = (self.lower_price + self.upper_price) / 2
+                order_size = capital_per_grid / avg_price
         
         # Apply leverage
         order_size = order_size * self.leverage
@@ -142,7 +162,7 @@ class DirectionalGridBot:
         order_size = adjust_quantity(order_size, self.symbol_info)
         
         logger.info(f"Capital per grid: {capital_per_grid} -> Order size: {order_size}")
-        return float(order_size)  # Ensure it's a float, not a string
+        return float(order_size)
     
     def _get_current_price(self):
         """Get current market price."""
@@ -423,6 +443,11 @@ class DirectionalGridBot:
             # Cancel any existing orders for this symbol
             logger.info("Cancelling any existing orders...")
             self.exchange.cancel_all_orders(self.symbol)
+            
+            # SAFETY CHECK: Limit maximum order size for BTCUSD on Bybit
+            if 'BTCUSD' in self.symbol and self.order_size > 1000:
+                logger.warning(f"Order size {self.order_size} seems too large for {self.symbol}, limiting to 100")
+                self.order_size = 100  # A more reasonable size for testing
             
             # Place initial position if configured
             if self.initial_position_pct > 0:
