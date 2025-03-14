@@ -20,7 +20,9 @@ class DirectionalGridBot:
         range_percentage: float = 2.0,
         direction: Literal["long", "short"] = "long",
         leverage: int = 2,
-        initial_position_pct: float = 100.0
+        initial_position_pct: float = 100.0,
+        lower_price: float = 0.0,
+        upper_price: float = 0.0
     ):
         """Initialize the directional grid trading bot.
         
@@ -33,6 +35,8 @@ class DirectionalGridBot:
             direction: Trading direction ('long' or 'short')
             leverage: Leverage to use (1 = no leverage)
             initial_position_pct: Percentage of capital to use for initial position (0-100)
+            lower_price: Lower price bound for grid
+            upper_price: Upper price bound for grid
         """
         self.exchange = exchange
         self.symbol = symbol
@@ -42,6 +46,8 @@ class DirectionalGridBot:
         self.direction = direction
         self.leverage = leverage
         self.initial_position_pct = initial_position_pct
+        self.lower_price = lower_price
+        self.upper_price = upper_price
         
         # Get symbol information
         self.symbol_info = get_symbol_info(exchange, symbol)
